@@ -2,6 +2,12 @@ export const runtime = 'nodejs';
 
 export async function POST(request) {
   try {
+    // Validate API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY environment variable is not set');
+      return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), { status: 500 });
+    }
+
     const form = await request.formData();
     const prompt = form.get('prompt') || '';
     let size = (form.get('size') || '1024x1024').toString();
@@ -17,7 +23,7 @@ export async function POST(request) {
     }
 
     const fd = new FormData();
-    fd.append('model', 'gpt-image-1');
+    fd.append('model', 'dall-e-2');
     fd.append('prompt', prompt);
     fd.append('image[]', image, 'upload.png');
     if (mask) fd.append('mask', mask, 'mask.png');
@@ -32,7 +38,12 @@ export async function POST(request) {
 
     if (!r.ok) {
       const txt = await r.text();
-      return new Response(txt, { status: r.status });
+      console.error('OpenAI API error:', r.status, txt);
+      return new Response(JSON.stringify({ 
+        error: 'OpenAI API error', 
+        status: r.status, 
+        details: txt 
+      }), { status: r.status });
     }
 
     const json = await r.json();
