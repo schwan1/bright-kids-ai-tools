@@ -23,7 +23,7 @@ export async function POST(request) {
     }
 
     const fd = new FormData();
-    fd.append('model', 'dall-e-2');
+    fd.append('model', 'gpt-image-1');
     fd.append('prompt', prompt);
     fd.append('image', image, 'upload.png');
     if (mask) fd.append('mask', mask, 'mask.png');
