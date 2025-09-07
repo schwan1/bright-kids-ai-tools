@@ -25,7 +25,7 @@ export async function POST(request) {
     const fd = new FormData();
     fd.append('model', 'dall-e-2');
     fd.append('prompt', prompt);
-    fd.append('image[]', image, 'upload.png');
+    fd.append('image', image, 'upload.png');
     if (mask) fd.append('mask', mask, 'mask.png');
     fd.append('size', size);
 
