@@ -22,9 +22,10 @@ export default function HomePage() {
           </div>
 
           <div className="card">
-            <h2>📚 Storybook Builder</h2>
-            <p>Draft page layouts and export to PDF/ePub. <strong>Coming soon!</strong></p>
-            <a className="btn secondary" href="#" onClick={(e)=>{e.preventDefault(); alert('Coming soon!')}}>Preview</a>
+            <h2>📚 Wendy the Storybook Maker</h2>
+            <p><em>"Personalized bedtime stories that help kids practice life skills."</em></p>
+            <p>Tell Wendy about your child and goal. She'll craft a gentle 10‑page story with matching illustrations.</p>
+            <a className="btn" href="/storybook">Launch Wendy</a>
           </div>
 
           <div className="card">

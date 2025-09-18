@@ -1,0 +1,97 @@
+export const runtime = 'nodejs';
+
+export async function POST(request) {
+  try {
+    // Validate API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY environment variable is not set');
+      return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), { status: 500 });
+    }
+
+    const data = await request.json();
+    const { batch } = data;
+
+    // Basic validation
+    if (!batch || !Array.isArray(batch) || batch.length === 0) {
+      return new Response(JSON.stringify({ error: 'Batch array is required' }), { status: 400 });
+    }
+
+    if (batch.length > 12) {
+      return new Response(JSON.stringify({ error: 'Maximum 12 images per batch' }), { status: 400 });
+    }
+
+    const results = [];
+
+    // Process each image request sequentially to avoid rate limits
+    for (const item of batch) {
+      const { page, prompt, style, size = '1024x1024' } = item;
+
+      if (!prompt) {
+        console.error(`No prompt provided for page ${page}`);
+        results.push({ page, error: 'No prompt provided' });
+        continue;
+      }
+
+      try {
+        // Enhanced prompt with style and formatting guidelines
+        const enhancedPrompt = `${prompt}. Style: ${style}. Palette: deep-navy, candlelight-amber, peach-coral accents, soft edges, picture-book lighting. No text, no watermarks, child-friendly, gentle faces, cozy compositions.`;
+
+        const imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-image-1',
+            prompt: enhancedPrompt,
+            size: size,
+            quality: 'standard',
+            response_format: 'b64_json',
+            n: 1
+          }),
+        });
+
+        if (!imageResponse.ok) {
+          const errorText = await imageResponse.text();
+          console.error(`OpenAI API error for page ${page}:`, imageResponse.status, errorText);
+          results.push({
+            page,
+            error: `OpenAI API error: ${imageResponse.status}`,
+            details: errorText
+          });
+          continue;
+        }
+
+        const imageResult = await imageResponse.json();
+        const b64Image = imageResult.data?.[0]?.b64_json;
+
+        if (!b64Image) {
+          console.error(`No image returned for page ${page}`);
+          results.push({ page, error: 'No image returned' });
+          continue;
+        }
+
+        results.push({ page, b64: b64Image });
+
+        // Small delay between requests to be respectful to the API
+        if (batch.length > 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+      } catch (itemError) {
+        console.error(`Error processing page ${page}:`, itemError);
+        results.push({ page, error: itemError.message });
+      }
+    }
+
+    return new Response(JSON.stringify({ results }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Image generation error:', error);
+    return new Response(JSON.stringify({ error: 'Server error during image generation' }), { status: 500 });
+  }
+}
