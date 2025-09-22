@@ -43,13 +43,12 @@ export async function POST(request) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-image-1',
+            model: 'dall-e-2',
             prompt: enhancedPrompt,
             size: size,
-            quality: 'standard',
-            response_format: 'b64_json',
             n: 1
           }),
+          cache: 'no-store',
         });
 
         if (!imageResponse.ok) {
@@ -64,15 +63,20 @@ export async function POST(request) {
         }
 
         const imageResult = await imageResponse.json();
-        const b64Image = imageResult.data?.[0]?.b64_json;
+        const imageUrl = imageResult.data?.[0]?.url;
 
-        if (!b64Image) {
+        if (!imageUrl) {
           console.error(`No image returned for page ${page}`);
           results.push({ page, error: 'No image returned' });
           continue;
         }
 
-        results.push({ page, b64: b64Image });
+        // Fetch the image and convert to base64
+        const imgResponse = await fetch(imageUrl);
+        const imgArrayBuffer = await imgResponse.arrayBuffer();
+        const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
+
+        results.push({ page, b64: imgBase64 });
 
         // Small delay between requests to be respectful to the API
         if (batch.length > 1) {
