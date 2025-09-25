@@ -32,6 +32,129 @@ export default function StorybookPage() {
   const [illustrateLoading, setIllustrateLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
 
+  // Avatar generation state
+  const [referenceFile, setReferenceFile] = useState(null);
+  const [avatarURL, setAvatarURL] = useState(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState(null);
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  // Convert any image file to PNG format with size optimization
+  function convertToPNG(file) {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+
+      img.onload = () => {
+        // Calculate dimensions to keep under 4MB while maintaining quality
+        let { width, height } = img;
+        const maxDimension = 1024; // Reasonable max for avatar generation
+
+        if (width > maxDimension || height > maxDimension) {
+          const ratio = Math.min(maxDimension / width, maxDimension / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        // Set canvas dimensions to optimized size
+        canvas.width = width;
+        canvas.height = height;
+
+        // Draw image to canvas with optimized dimensions
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convert canvas to PNG blob with compression
+        canvas.toBlob((blob) => {
+          // Check if blob is under 4MB (OpenAI limit)
+          if (blob.size > 4 * 1024 * 1024) {
+            // If still too large, try with more compression
+            const smallerCanvas = document.createElement('canvas');
+            const smallerCtx = smallerCanvas.getContext('2d');
+            const reducedSize = Math.min(512, Math.min(width, height));
+            const reducedRatio = reducedSize / Math.max(width, height);
+
+            smallerCanvas.width = Math.round(width * reducedRatio);
+            smallerCanvas.height = Math.round(height * reducedRatio);
+            smallerCtx.drawImage(img, 0, 0, smallerCanvas.width, smallerCanvas.height);
+
+            smallerCanvas.toBlob(resolve, 'image/png', 0.8);
+          } else {
+            resolve(blob);
+          }
+        }, 'image/png', 0.9);
+      };
+
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function generateAvatarFromReference(file) {
+    if (!file) return;
+
+    setAvatarBusy(true);
+    setAvatarError(null);
+
+    try {
+      // Convert file to PNG if it's not already
+      const pngFile = file.type === 'image/png' ? file : await convertToPNG(file);
+
+      const fd = new FormData();
+      fd.append('image', pngFile, 'avatar-source.png');
+      fd.append('prompt', 'Create a clean, child storybook-style character avatar of the person in the source photo. Preserve identifying traits (face shape, skin tone, hair color/style, glasses, accessories). Gentle, friendly proportions, soft colors, simple neutral background, clear silhouette, front-facing, no text.');
+      fd.append('size', '1024x1024');
+
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        body: fd,
+        cache: 'no-store'
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Avatar generation failed');
+      }
+
+      const blob = await response.blob();
+
+      // Cleanup old avatar URL
+      if (avatarURL) {
+        URL.revokeObjectURL(avatarURL);
+      }
+
+      const url = URL.createObjectURL(blob);
+      setAvatarURL(url);
+    } catch (error) {
+      console.error('Avatar generation failed:', error);
+      setAvatarError(error.message);
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  function handleReferenceFileChange(e) {
+    const file = e.target.files?.[0] || null;
+    setReferenceFile(file);
+
+    if (file) {
+      generateAvatarFromReference(file);
+    } else {
+      // Clear avatar if no file
+      if (avatarURL) {
+        URL.revokeObjectURL(avatarURL);
+      }
+      setAvatarURL(null);
+      setAvatarError(null);
+    }
+  }
+
+  function regenerateAvatar() {
+    if (referenceFile) {
+      generateAvatarFromReference(referenceFile);
+    }
+  }
+
   function validateInputs() {
     const errors = [];
 
@@ -116,39 +239,81 @@ export default function StorybookPage() {
           URL.revokeObjectURL(url);
         }
       });
+      if (avatarURL && typeof avatarURL === 'string' && avatarURL.startsWith('blob:')) {
+        URL.revokeObjectURL(avatarURL);
+      }
     };
-  }, [images]);
+  }, [images, avatarURL]);
+
+  // Convert URL to base64
+  async function urlToBase64(url) {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1]; // Remove data:image/png;base64, prefix
+        resolve(base64);
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
 
   async function illustrateAll() {
     if (!story?.pages || story.pages.length === 0) return;
+
+    // Check if avatar exists
+    if (!avatarURL) {
+      alert('Please upload a reference photo so the avatar can be created before generating illustrations.');
+      return;
+    }
 
     setIllustrateLoading(true);
     setProgress({ current: 0, total: story.pages.length });
 
     try {
-      const batch = story.pages.map(page => ({
-        page: page.page,
-        prompt: page.illustrationPrompt,
-        style: page.style,
-        size: '1024x1024'
-      }));
-
-      const response = await fetch('/api/storybook/image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate images');
-      }
-
-      const data = await response.json();
       const newImages = { ...images };
+      let previousPageB64 = await urlToBase64(avatarURL); // Start with avatar for cover
 
-      data.results.forEach((result, index) => {
-        setProgress({ current: index + 1, total: story.pages.length });
+      // Generate pages sequentially
+      for (let i = 0; i < story.pages.length; i++) {
+        const page = story.pages[i];
+        setProgress({ current: i, total: story.pages.length });
+
+        let prompt;
+        let sourceB64 = null;
+
+        if (page.page === 1) {
+          // Cover page - use avatar as source
+          prompt = `Design a warm, inviting picture-book cover featuring the generated avatar as the main character. Include the story title "${story.title}" in storybook style lettering at the top. Include the text "Created by Bright Kids AI" at the bottom. Cohesive palette and layout. Clear, readable typography.`;
+          sourceB64 = previousPageB64;
+        } else {
+          // Subsequent pages - use previous page as source for consistency
+          prompt = `Keep the same main character(s) and visual style as the previous page image (hair, clothing, skin tone, proportions, palette). Now depict: ${page.illustrationPrompt}.`;
+          sourceB64 = previousPageB64;
+        }
+
+        const batch = [{
+          page: page.page,
+          prompt: prompt,
+          style: page.style,
+          size: '1024x1024',
+          sourceB64: sourceB64
+        }];
+
+        const response = await fetch('/api/storybook/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to generate images');
+        }
+
+        const data = await response.json();
+        const result = data.results[0];
 
         if (result.b64) {
           // Cleanup old image URL if exists
@@ -159,17 +324,28 @@ export default function StorybookPage() {
           // Convert base64 to blob URL
           const byteCharacters = atob(result.b64);
           const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          for (let j = 0; j < byteCharacters.length; j++) {
+            byteNumbers[j] = byteCharacters.charCodeAt(j);
           }
           const byteArray = new Uint8Array(byteNumbers);
           const blob = new Blob([byteArray], { type: 'image/png' });
-          newImages[result.page] = URL.createObjectURL(blob);
+          const imageURL = URL.createObjectURL(blob);
+          newImages[result.page] = imageURL;
+
+          // Update previousPageB64 for next iteration
+          previousPageB64 = result.b64;
         } else if (result.error) {
           console.error(`Failed to generate image for page ${result.page}:`, result.error);
+          throw new Error(`Failed to generate image for page ${result.page}: ${result.error}`);
         }
-      });
 
+        // Small delay between requests
+        if (i < story.pages.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      setProgress({ current: story.pages.length, total: story.pages.length });
       setImages(newImages);
     } catch (error) {
       console.error('Image generation failed:', error);
@@ -591,6 +767,103 @@ export default function StorybookPage() {
                     <option value={10}>10 pages</option>
                     <option value={12}>12 pages</option>
                   </select>
+                </div>
+
+                {/* Character Generation Section */}
+                <div style={{marginTop: '20px', padding: '16px', border: '1px solid #2a3a52', borderRadius: '12px', background: 'rgba(255,154,110,.05)'}}>
+                  <h3 style={{margin: '0 0 12px 0'}}>Character Generation</h3>
+
+                  <div style={{marginBottom: '12px'}}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px'}}>
+                      <label htmlFor="referencePhoto" style={{margin: 0}}>Reference photo</label>
+                      <div style={{position: 'relative'}}>
+                        <button
+                          type="button"
+                          onMouseEnter={() => setShowTooltip(true)}
+                          onMouseLeave={() => setShowTooltip(false)}
+                          onFocus={() => setShowTooltip(true)}
+                          onBlur={() => setShowTooltip(false)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--wendy-accent)',
+                            cursor: 'help',
+                            fontSize: '14px',
+                            padding: '2px'
+                          }}
+                          aria-describedby="tooltip"
+                        >
+                          ?
+                        </button>
+                        {showTooltip && (
+                          <div
+                            id="tooltip"
+                            role="tooltip"
+                            style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              marginBottom: '8px',
+                              padding: '8px 12px',
+                              background: 'var(--ink)',
+                              border: '1px solid #2a3a52',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              maxWidth: '200px',
+                              zIndex: 10,
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                            }}
+                          >
+                            We'll generate a storybook-style avatar from your photo and use it to keep characters consistent across all pages.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <input
+                      id="referencePhoto"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={handleReferenceFileChange}
+                    />
+                  </div>
+
+                  <div className="meta" style={{fontSize: '12px', marginBottom: '12px'}}>Your avatar sets the character look for the cover and all pages.</div>
+
+                  {avatarBusy && (
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
+                      <div style={{width: '16px', height: '16px', border: '2px solid var(--wendy-accent)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite'}}></div>
+                      <span style={{fontSize: '12px'}}>Generating avatar...</span>
+                    </div>
+                  )}
+
+                  {avatarError && (
+                    <div style={{color: '#ff6b6b', fontSize: '12px', marginBottom: '12px'}}>
+                      Error: {avatarError}
+                    </div>
+                  )}
+
+                  {avatarURL && (
+                    <div style={{marginBottom: '12px'}}>
+                      <img
+                        src={avatarURL}
+                        alt="Generated character avatar"
+                        style={{maxWidth: '240px', height: 'auto', borderRadius: '8px', border: '1px solid #2a3a52'}}
+                      />
+                      <div className="meta" style={{fontSize: '11px', marginTop: '4px'}}>This avatar will be used for the cover and to keep characters consistent.</div>
+                    </div>
+                  )}
+
+                  {avatarURL && (
+                    <button
+                      className="btn secondary"
+                      onClick={regenerateAvatar}
+                      disabled={avatarBusy}
+                      style={{fontSize: '12px', padding: '6px 10px'}}
+                    >
+                      {avatarBusy ? 'Generating...' : 'Regenerate'}
+                    </button>
+                  )}
                 </div>
 
                 <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
