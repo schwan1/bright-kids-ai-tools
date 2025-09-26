@@ -742,17 +742,136 @@ export default function StorybookPage() {
               <h3>Style & output</h3>
               <div style={{display: 'grid', gap: '12px'}}>
                 <div>
-                  <label htmlFor="illustrationStyle">Illustration style</label>
-                  <select
-                    id="illustrationStyle"
-                    value={style.illustrationStyle}
-                    onChange={(e) => setStyle({...style, illustrationStyle: e.target.value})}
+                  <label id="illustrationStyleLabel">Illustration style</label>
+                  <div
+                    role="radiogroup"
+                    aria-labelledby="illustrationStyleLabel"
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: '16px',
+                      marginTop: '12px'
+                    }}
                   >
-                    <option value="Whimsical watercolor">Whimsical watercolor</option>
-                    <option value="Soft pastel">Soft pastel</option>
-                    <option value="Cozy pencil sketch">Cozy pencil sketch</option>
-                    <option value="Gentle digital art">Gentle digital art</option>
-                  </select>
+                    {[
+                      { value: 'Whimsical watercolor', image: 'traditional_watercolor.png', name: 'Traditional' },
+                      { value: '2D digital illustration', image: '2D_digital.png', name: '2D Digital' },
+                      { value: 'Comic / graphic style', image: 'comic_graphic.png', name: 'Comic Graphic' },
+                      { value: 'Modern 3D rendered', image: 'modern_3D_rendered.png', name: 'Modern 3D' }
+                    ].map((styleOption) => (
+                      <div
+                        key={styleOption.value}
+                        role="radio"
+                        aria-checked={style.illustrationStyle === styleOption.value}
+                        aria-label={styleOption.value}
+                        tabIndex={style.illustrationStyle === styleOption.value ? 0 : -1}
+                        onClick={() => setStyle({...style, illustrationStyle: styleOption.value})}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setStyle({...style, illustrationStyle: styleOption.value});
+                          }
+                        }}
+                        style={{
+                          position: 'relative',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '8px',
+                          borderRadius: '12px',
+                          border: `2px solid ${style.illustrationStyle === styleOption.value ? 'var(--wendy-accent)' : '#2a3a52'}`,
+                          backgroundColor: style.illustrationStyle === styleOption.value ? 'rgba(255,154,110,.1)' : 'rgba(255,255,255,.02)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          boxShadow: style.illustrationStyle === styleOption.value ? '0 0 12px rgba(255,154,110,.3)' : 'none'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (style.illustrationStyle !== styleOption.value) {
+                            e.target.style.backgroundColor = 'rgba(255,255,255,.05)';
+                            e.target.style.borderColor = '#3a4a62';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (style.illustrationStyle !== styleOption.value) {
+                            e.target.style.backgroundColor = 'rgba(255,255,255,.02)';
+                            e.target.style.borderColor = '#2a3a52';
+                          }
+                        }}
+                      >
+                        <div style={{
+                          aspectRatio: '2/3',
+                          width: '100%',
+                          marginBottom: '8px'
+                        }}>
+                          <img
+                            src={`/storybook/images/${styleOption.image}`}
+                            alt=""
+                            role="presentation"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              borderRadius: '8px'
+                            }}
+                          />
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          textAlign: 'center',
+                          color: style.illustrationStyle === styleOption.value ? 'var(--wendy-accent)' : 'var(--text)'
+                        }}>
+                          {styleOption.name}
+                        </div>
+                        {/* Checkmark overlay for selected state */}
+                        {style.illustrationStyle === styleOption.value && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '8px',
+                              right: '8px',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--wendy-accent)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              boxShadow: '0 2px 4px rgba(0,0,0,.3)'
+                            }}
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <polyline points="20,6 9,17 4,12"></polyline>
+                            </svg>
+                          </div>
+                        )}
+                        {/* Visually hidden label for screen readers only */}
+                        <span style={{
+                          position: 'absolute',
+                          width: '1px',
+                          height: '1px',
+                          padding: '0',
+                          margin: '-1px',
+                          overflow: 'hidden',
+                          clip: 'rect(0, 0, 0, 0)',
+                          whiteSpace: 'nowrap',
+                          border: '0'
+                        }}>
+                          {styleOption.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <div>
