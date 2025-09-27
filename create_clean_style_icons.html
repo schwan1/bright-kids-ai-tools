@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Clean Style Icons (No Text)</title>
+</head>
+<body>
+    <h1>Generate Clean Style Icons</h1>
+    <p>Click to generate and download clean style icons without any text:</p>
+
+    <script>
+        // Create clean style icons without any text
+        function createCleanStyleIcon(name, style) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 120;
+            canvas.height = 80;
+            const ctx = canvas.getContext('2d');
+
+            // Clear background
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, 120, 80);
+
+            if (name === 'watercolor') {
+                // Soft watercolor blobs without text
+                const colors = ['#ffb3ba', '#bae1ff', '#baffc9', '#ffffba', '#e1baff'];
+                for (let i = 0; i < 8; i++) {
+                    const x = Math.random() * 120;
+                    const y = Math.random() * 80;
+                    const radius = 8 + Math.random() * 12;
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+
+                    ctx.globalAlpha = 0.6;
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+
+            } else if (name === 'digital') {
+                // Clean digital lines without text
+                ctx.strokeStyle = '#4A90E2';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 10; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(10 + i * 10, 10);
+                    ctx.lineTo(10 + i * 10, 70);
+                    ctx.stroke();
+                }
+
+            } else if (name === 'comic') {
+                // Geometric shapes without text
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(30, 25, 15, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#FF6B6B';
+                ctx.fillRect(60, 10, 20, 20);
+
+                ctx.fillStyle = '#4ECDC4';
+                ctx.beginPath();
+                ctx.moveTo(90, 50);
+                ctx.lineTo(75, 25);
+                ctx.lineTo(105, 25);
+                ctx.closePath();
+                ctx.fill();
+
+            } else if (name === '3d') {
+                // 3D gradient effect without text
+                const gradient = ctx.createLinearGradient(0, 0, 120, 80);
+                gradient.addColorStop(0, '#ff9a6e');
+                gradient.addColorStop(0.5, '#ff7a4d');
+                gradient.addColorStop(1, '#e55a2b');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(20, 15, 80, 50);
+
+                // Add highlight for 3D effect
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fillRect(20, 15, 80, 15);
+            }
+
+            return canvas;
+        }
+
+        // Generate all icons
+        const icons = [
+            { name: 'watercolor', filename: 'traditional_watercolor.png' },
+            { name: 'digital', filename: '2D_digital.png' },
+            { name: 'comic', filename: 'comic_graphic.png' },
+            { name: '3d', filename: 'modern_3D_rendered.png' }
+        ];
+
+        icons.forEach(icon => {
+            const canvas = createCleanStyleIcon(icon.name, icon.name);
+
+            // Create download link
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = icon.filename;
+                link.textContent = `Download ${icon.filename}`;
+                link.style.display = 'block';
+                link.style.margin = '10px 0';
+                document.body.appendChild(link);
+
+                // Auto-click to download
+                link.click();
+            });
+        });
+    </script>
+</body>
+</html>
