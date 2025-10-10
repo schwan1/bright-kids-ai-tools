@@ -1,130 +1,171 @@
 export const runtime = 'nodejs';
 
-// Constants
-const OPENAI_API_URL = 'https://api.openai.com/v1/images/edits';
-const ALLOWED_SIZES = new Set(['1024x1024', '1024x1536', '1536x1024', 'auto']);
-const DEFAULT_SIZE = '1024x1024';
-const IMAGE_MODEL = 'gpt-image-1'; // Model for image edits
-
-// Helper functions
-function validateApiKey() {
-  if (!process.env.OPENAI_API_KEY) {
-    console.error('OPENAI_API_KEY environment variable is not set');
-    throw new Error('OpenAI API key not configured');
-  }
-}
-
-function validateAndNormalizeSize(size) {
-  const normalizedSize = (size || DEFAULT_SIZE).toString();
-  
-  if (!ALLOWED_SIZES.has(normalizedSize)) {
-    return DEFAULT_SIZE;
-  }
-  
-  // Handle 'auto' size - fallback to square format
-  return normalizedSize === 'auto' ? DEFAULT_SIZE : normalizedSize;
-}
-
-function createFormDataForOpenAI(prompt, image, mask, size) {
-  const formData = new FormData();
-  
-  formData.append('model', IMAGE_MODEL);
-  formData.append('prompt', prompt);
-  formData.append('image', image, 'upload.png');
-  formData.append('size', size);
-  
-  if (mask) {
-    formData.append('mask', mask, 'mask.png');
-  }
-  
-  return formData;
-}
-
-function createErrorResponse(message, status = 500, details = null) {
-  const errorData = { error: message };
-  if (details) {
-    errorData.details = details;
-    errorData.status = status;
-  }
-  
-  return new Response(JSON.stringify(errorData), { status });
-}
-
-function createImageResponse(imageBuffer) {
-  return new Response(imageBuffer, {
-    headers: { 
-      'Content-Type': 'image/png', 
-      'Cache-Control': 'no-store' 
-    },
-  });
-}
-
 export async function POST(request) {
   try {
-    // Validate environment setup
-    validateApiKey();
-    
-    // Parse and validate request data
-    const formData = await request.formData();
-    const prompt = formData.get('prompt') || '';
-    const image = formData.get('image');
-    const mask = formData.get('mask');
-    const requestedSize = formData.get('size');
-    
-    // Validate required fields
-    if (!image) {
-      return createErrorResponse('Image is required', 400);
+    // Validate API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY environment variable is not set');
+      return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), { status: 500 });
     }
-    
-    // Normalize and validate size
-    const validatedSize = validateAndNormalizeSize(requestedSize);
-    
-    // Prepare OpenAI API request
-    const openAIFormData = createFormDataForOpenAI(prompt, image, mask, validatedSize);
-    
-    // Make request to OpenAI API
-    const openAIResponse = await fetch(OPENAI_API_URL, {
-      method: 'POST',
-      headers: { 
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}` 
-      },
-      body: openAIFormData,
-      cache: 'no-store',
+
+    const data = await request.json();
+    const { batch } = data;
+
+    // Basic validation
+    if (!batch || !Array.isArray(batch) || batch.length === 0) {
+      return new Response(JSON.stringify({ error: 'Batch array is required' }), { status: 400 });
+    }
+
+    if (batch.length > 12) {
+      return new Response(JSON.stringify({ error: 'Maximum 12 images per batch' }), { status: 400 });
+    }
+
+    const results = [];
+
+    // Supported OpenAI sizes are square only; normalize requested sizes
+    const allowedSquareSizes = new Set(['256x256', '512x512', '1024x1024']);
+    const normalizeSize = (s) => allowedSquareSizes.has(String(s)) ? String(s) : '1024x1024';
+
+    // Process each image request sequentially to avoid rate limits
+    for (const item of batch) {
+      const { page, prompt, style, size = '1024x1536', sourceB64, styleBaseB64 } = item;
+      const openAiSize = normalizeSize(size);
+
+      if (!prompt) {
+        console.error(`No prompt provided for page ${page}`);
+        results.push({ page, error: 'No prompt provided' });
+        continue;
+      }
+
+      try {
+        // Enhanced prompt with style and formatting guidelines
+        const enhancedPrompt = `${prompt}. Style: ${style}. Palette: deep-navy, candlelight-amber, peach-coral accents, soft edges, picture-book lighting. No text, no watermarks, child-friendly, gentle faces, cozy compositions.`;
+
+        let imageResponse;
+
+        if (styleBaseB64 && sourceB64) {
+          // Avatar generation: use the source image (person's photo) as base and transform to match style
+          const formData = new FormData();
+
+          // Convert base64 to blob - use source image (person's photo) as the base
+          const imageBuffer = Buffer.from(sourceB64, 'base64');
+          const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+
+          formData.append('model', 'gpt-image-1');
+          formData.append('prompt', enhancedPrompt);
+          formData.append('image', imageBlob, 'source.png');
+          formData.append('size', openAiSize);
+
+          imageResponse = await fetch('https://api.openai.com/v1/images/edits', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: formData,
+            cache: 'no-store',
+          });
+        } else if (sourceB64) {
+          // Use source image when provided (regular edit)
+          const formData = new FormData();
+
+          // Convert base64 to blob
+          const imageBuffer = Buffer.from(sourceB64, 'base64');
+          const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+
+          formData.append('model', 'gpt-image-1');
+          formData.append('prompt', enhancedPrompt);
+          formData.append('image', imageBlob, 'source.png');
+          formData.append('size', openAiSize);
+
+          imageResponse = await fetch('https://api.openai.com/v1/images/edits', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: formData,
+            cache: 'no-store',
+          });
+        } else {
+          // Use regular generation endpoint when no source image
+          imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'dall-e-2',
+              prompt: enhancedPrompt,
+              size: openAiSize,
+              n: 1
+            }),
+            cache: 'no-store',
+          });
+        }
+
+        if (!imageResponse.ok) {
+          const errorText = await imageResponse.text();
+          console.error(`OpenAI API error for page ${page}:`, imageResponse.status, errorText);
+          results.push({
+            page,
+            error: `OpenAI API error: ${imageResponse.status}`,
+            details: errorText
+          });
+          continue;
+        }
+
+        if ((styleBaseB64 && sourceB64) || sourceB64) {
+          // For edit endpoint, OpenAI can return either JSON (b64_json) or raw binary
+          const contentType = imageResponse.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const json = await imageResponse.json();
+            const imgBase64 = json?.data?.[0]?.b64_json;
+            if (!imgBase64) {
+              results.push({ page, error: 'No image returned (JSON response without b64_json)' });
+            } else {
+              results.push({ page, b64: imgBase64 });
+            }
+          } else {
+            const imgArrayBuffer = await imageResponse.arrayBuffer();
+            const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
+            results.push({ page, b64: imgBase64 });
+          }
+        } else {
+          // For generation endpoint, response is JSON with URL
+          const imageResult = await imageResponse.json();
+          const imageUrl = imageResult.data?.[0]?.url;
+
+          if (!imageUrl) {
+            console.error(`No image returned for page ${page}`);
+            results.push({ page, error: 'No image returned' });
+            continue;
+          }
+
+          // Fetch the image and convert to base64
+          const imgResponse = await fetch(imageUrl);
+          const imgArrayBuffer = await imgResponse.arrayBuffer();
+          const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
+          results.push({ page, b64: imgBase64 });
+        }
+
+        // Small delay between requests to be respectful to the API
+        if (batch.length > 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+      } catch (itemError) {
+        console.error(`Error processing page ${page}:`, itemError);
+        results.push({ page, error: itemError.message });
+      }
+    }
+
+    return new Response(JSON.stringify({ results }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     });
-    
-    // Handle API errors
-    if (!openAIResponse.ok) {
-      const errorText = await openAIResponse.text();
-      console.error('OpenAI API error:', openAIResponse.status, errorText);
-      
-      return createErrorResponse(
-        'OpenAI API error', 
-        openAIResponse.status, 
-        errorText
-      );
-    }
-    
-    // Parse and validate API response
-    const responseData = await openAIResponse.json();
-    const base64Image = responseData.data?.[0]?.b64_json;
-    
-    if (!base64Image) {
-      console.error('No image data received from OpenAI API');
-      return createErrorResponse('No image returned from API', 502);
-    }
-    
-    // Convert and return image
-    const imageBuffer = Buffer.from(base64Image, 'base64');
-    return createImageResponse(imageBuffer);
-    
+
   } catch (error) {
     console.error('Image generation error:', error);
-    
-    // Return appropriate error response based on error type
-    if (error.message === 'OpenAI API key not configured') {
-      return createErrorResponse(error.message, 500);
-    }
-    
-    return createErrorResponse('Internal server error', 500);
+    return new Response(JSON.stringify({ error: 'Server error during image generation' }), { status: 500 });
   }
 }

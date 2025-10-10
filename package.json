@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start -p 3000"
+    "start": "next start -p 3000",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
   },
   "dependencies": {
     "jszip": "^3.10.1",
@@ -12,5 +14,8 @@
     "pdf-lib": "^1.17.1",
     "react": "18.2.0",
     "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.1"
   }
 }

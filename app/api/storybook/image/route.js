@@ -24,7 +24,7 @@ export async function POST(request) {
 
     // Process each image request sequentially to avoid rate limits
     for (const item of batch) {
-      const { page, prompt, style, size = '1024x1024', sourceB64 } = item;
+      const { page, prompt, style, size = '1024x1536', sourceB64, styleBaseB64 } = item;
 
       if (!prompt) {
         console.error(`No prompt provided for page ${page}`);
@@ -38,8 +38,29 @@ export async function POST(request) {
 
         let imageResponse;
 
-        if (sourceB64) {
-          // Use image edit endpoint when source image is provided
+        if (styleBaseB64 && sourceB64) {
+          // Avatar generation: use the source image (person's photo) as base and transform to match style
+          const formData = new FormData();
+
+          // Convert base64 to blob - use source image (person's photo) as the base
+          const imageBuffer = Buffer.from(sourceB64, 'base64');
+          const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+
+          formData.append('model', 'gpt-image-1');
+          formData.append('prompt', enhancedPrompt);
+          formData.append('image', imageBlob, 'source.png');
+          formData.append('size', size);
+
+          imageResponse = await fetch('https://api.openai.com/v1/images/edits', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+            },
+            body: formData,
+            cache: 'no-store',
+          });
+        } else if (sourceB64) {
+          // Use source image when provided (regular edit)
           const formData = new FormData();
 
           // Convert base64 to blob
@@ -88,7 +109,7 @@ export async function POST(request) {
           continue;
         }
 
-        if (sourceB64) {
+        if ((styleBaseB64 && sourceB64) || sourceB64) {
           // For edit endpoint, response is binary image data
           const imgArrayBuffer = await imageResponse.arrayBuffer();
           const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
