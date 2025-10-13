@@ -8,49 +8,93 @@ function getTextStyleForPages(style) {
 TEXT RENDERING (at bottom of image):
 - Style: Hand-lettered, storybook font like classic children's books
 - Font: Flowing, organic letters with soft, painted appearance
-- Color: Warm, readable tones (deep navy, rich brown, warm colors)
-- Background: Subtle cream or parchment-colored text box with soft edges
+- Color: Warm, readable tones (warm brown or deep charcoal, NOT black)
+- Background: LIGHT cream or pale ivory text box with soft edges
 - Add gentle shadow or glow for readability
-- Text should look hand-painted, matching watercolor style
-- 2-3 lines maximum, centered at bottom`;
+- Text should look hand-painted, matching light watercolor style
+- 2-3 lines maximum, centered at bottom
+
+CRITICAL TEXT FITTING:
+- ALL text must fit COMPLETELY within image boundaries
+- Leave minimum 80px margin from left and right edges
+- Leave minimum 60px margin from bottom edge
+- Text box width: maximum 85% of image width (870px max)
+- Break into multiple lines if needed - no single line wider than 85%
+- Ensure NO letters are cut off at any edge
+- All text fully visible and readable within the frame`;
   } else if (styleLower.includes('2d digital')) {
     return `
 TEXT RENDERING (at bottom of image):
 - Style: Bold, clean sans-serif font like modern picture books
 - Font: Rounded, friendly letters, crisp and clear
 - Color: Dark text with bright white outline for high contrast
-- Background: Clean white or light-colored text box with rounded corners
+- Background: Clean white or VERY light-colored text box with rounded corners
 - Add subtle drop shadow for depth
 - Text should be perfectly legible, digital quality
-- 2-3 lines maximum, centered at bottom`;
+- 2-3 lines maximum, centered at bottom
+
+CRITICAL TEXT FITTING:
+- ALL text must fit COMPLETELY within image boundaries
+- Leave minimum 80px margin from left and right edges
+- Leave minimum 60px margin from bottom edge
+- Text box width: maximum 85% of image width (870px max)
+- Break into multiple lines if needed - no single line wider than 85%
+- Ensure NO letters are cut off at any edge
+- All text fully visible and readable within the frame`;
   } else if (styleLower.includes('comic') || styleLower.includes('graphic')) {
     return `
 TEXT RENDERING (at bottom of image):
 - Style: BOLD COMIC BOOK LETTERING, ALL UPPERCASE
 - Font: Thick, impactful letters like comic book captions
 - Color: Black text with THICK white outline/stroke
-- Background: White speech bubble or caption box with bold border
+- Background: BRIGHT WHITE speech bubble or caption box with bold border
 - Strong, attention-grabbing appearance
 - Text should command presence like comic panels
-- 2-3 lines maximum, centered at bottom`;
+- 2-3 lines maximum, centered at bottom
+
+CRITICAL TEXT FITTING:
+- ALL text must fit COMPLETELY within image boundaries
+- Leave minimum 80px margin from left and right edges
+- Leave minimum 60px margin from bottom edge
+- Text box width: maximum 85% of image width (870px max)
+- Break into multiple lines if needed - no single line wider than 85%
+- Ensure NO letters are cut off at any edge
+- All text fully visible and readable within the frame`;
   } else if (styleLower.includes('3d') || styleLower.includes('modern')) {
     return `
 TEXT RENDERING (at bottom of image):
 - Style: Modern, smooth sans-serif with dimensional look
 - Font: Clean, rounded letters with slight 3D effect
 - Color: Dark text with subtle gradient or glossy finish
-- Background: Soft, semi-transparent modern text box
+- Background: VERY LIGHT, soft modern text box (pale gray or white)
 - Add gentle shadow and highlight for depth
 - Text should look polished and contemporary
-- 2-3 lines maximum, centered at bottom`;
+- 2-3 lines maximum, centered at bottom
+
+CRITICAL TEXT FITTING:
+- ALL text must fit COMPLETELY within image boundaries
+- Leave minimum 80px margin from left and right edges
+- Leave minimum 60px margin from bottom edge
+- Text box width: maximum 85% of image width (870px max)
+- Break into multiple lines if needed - no single line wider than 85%
+- Ensure NO letters are cut off at any edge
+- All text fully visible and readable within the frame`;
   }
   
   return `
 TEXT RENDERING (at bottom of image):
 - Style: Clear, friendly children's book font
 - Color: High contrast with background
-- Background: Semi-transparent text box for readability
-- 2-3 lines maximum, centered at bottom`;
+- Background: LIGHT semi-transparent text box for readability
+- 2-3 lines maximum, centered at bottom
+
+CRITICAL TEXT FITTING:
+- ALL text must fit COMPLETELY within image boundaries
+- Leave minimum 80px margin from left and right edges
+- Leave minimum 60px margin from bottom edge
+- Text box width: maximum 85% of image width (870px max)
+- Break into multiple lines if needed
+- Ensure NO letters are cut off at any edge`;
 }
 
 export async function POST(request) {
@@ -95,7 +139,14 @@ export async function POST(request) {
         const textInstructions = item.pageText ? getTextStyleForPages(style) : '';
         
         // Enhanced prompt with style and formatting guidelines
-        let enhancedPrompt = `${prompt}. Style: ${style}. Palette: deep-navy, candlelight-amber, peach-coral accents, soft edges, picture-book lighting. Child-friendly, gentle faces, cozy compositions.
+        let enhancedPrompt = `${prompt}. Style: ${style}. 
+
+COLOR PALETTE - BRIGHT AND LIGHT:
+- Soft sky-blue, warm golden-yellow, pastel peach-pink, cream whites, gentle lavender, mint-green
+- Bright, cheerful, light-filled atmosphere with plenty of white space and airy backgrounds
+- Avoid deep-navy or dark heavy tones - keep everything light, bright, and inviting
+- Children's book brightness: gentle pastels, sunny highlights, soft shadows
+- Uplifting, cozy compositions with gentle faces
 
 CRITICAL - ANATOMICAL CORRECTNESS:
 - Characters must have exactly TWO arms, TWO hands, TWO legs, TWO feet

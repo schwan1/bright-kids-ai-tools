@@ -6,9 +6,10 @@ function getTextStyleForCover(style) {
   if (styleLower.includes('watercolor') || styleLower.includes('traditional')) {
     return `- Text style: Hand-lettered, whimsical font style like children's book titles
 - Font appearance: Flowing, organic letters with soft edges, like painted by hand
-- Text color: Warm tones (deep amber, rich brown, or warm navy)
+- Text color: Warm READABLE tones (golden amber, warm brown, or soft charcoal - avoid deep navy)
+- Place text on LIGHT background areas or add light cream/ivory text box
 - Add subtle shadows or glow around text for depth
-- Text should look painted/brushed, matching watercolor aesthetic
+- Text should look painted/brushed, matching LIGHT watercolor aesthetic
 - Consider decorative flourishes or swirls around the letters`;
   } else if (styleLower.includes('2d digital')) {
     return `- Text style: Bold, clean sans-serif font like modern children's books
@@ -73,6 +74,13 @@ export async function POST(request) {
 - Style: ${style}
 - Make it look like a professional children's book cover with depth and charm
 
+COLOR PALETTE - BRIGHT AND CHEERFUL:
+- LIGHT sky (soft blue, pale lavender, or peach sunrise - NOT deep navy)
+- Warm golden-yellow sunlight and highlights
+- Pastel peach-pink, mint-green, cream whites as accents
+- Bright, airy, magical atmosphere with plenty of light
+- Avoid dark or heavy backgrounds - keep everything light and inviting
+
 CRITICAL - ANATOMICAL CORRECTNESS:
 - Character must have exactly TWO arms, TWO hands, TWO legs, TWO feet
 - Proper human proportions for children's book character
@@ -83,10 +91,17 @@ CRITICAL - ANATOMICAL CORRECTNESS:
 IMPORTANT - INCLUDE THE TITLE TEXT IN THE IMAGE:
 - Draw the title text "${title}" at the bottom third of the image
 ${textStyleInstructions}
-- The text should be clearly readable and integrated into the illustration
+
+CRITICAL TEXT FITTING RULES:
+- ALL title text must fit COMPLETELY within image boundaries
+- Leave minimum 100px margin from left and right edges
+- Leave minimum 80px margin from bottom edge
+- Title should be no wider than 75% of image width (768px maximum)
+- Break title into 2-3 lines if needed to fit properly
+- Ensure NO letters are cut off at any edge
+- All text must be fully visible and readable within the frame
 - Text placement: centered at bottom, leaving room for character above
 
-- Palette: deep-navy sky, candlelight-amber highlights, peach-coral accents, magical atmosphere
 - The character should be the hero of their story, front and center`;
 
       // Use the avatar as the source image to maintain character consistency

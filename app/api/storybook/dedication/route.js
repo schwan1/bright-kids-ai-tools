@@ -27,6 +27,12 @@ export async function POST(request) {
 - Style: ${style}
 - Character positioned to leave clear space for text
 
+COLOR PALETTE - SOFT AND WARM:
+- LIGHT, warm colors: cream, pale gold, soft peach, baby blue, lavender
+- Gentle, heartwarming atmosphere with plenty of light and breathing room
+- Avoid dark tones - keep everything soft, bright, and inviting
+- Peaceful, uplifting mood with gentle highlights
+
 CRITICAL - ANATOMICAL CORRECTNESS:
 - Character must have exactly TWO arms, TWO hands, TWO legs, TWO feet
 - Proper human proportions for children's book character
@@ -41,9 +47,16 @@ AND AT THE BOTTOM, INCLUDE:
 
 ${textStyleInstructions}
 
-- Text should be clearly readable and beautifully integrated
-- Top text (dedication) should be centered in upper/middle area
-- Bottom text ("Created By Bright Kids AI") should be smaller, centered at bottom
+CRITICAL TEXT FITTING RULES:
+- ALL text must fit COMPLETELY within image boundaries
+- Dedication text margins: 100px from left/right edges, 80px from top
+- Dedication text: maximum 70% of image width (716px max)
+- Bottom branding margins: 100px from left/right, 80px from bottom
+- Break dedication into 2-3 lines if needed
+- Ensure NO letters are cut off at any edge
+- All text must be fully visible within the frame
+- Top text (dedication) centered in upper/middle area
+- Bottom text ("Created By Bright Kids AI") smaller, centered at bottom
 - Leave the character visible but ensure text has prominence`;
 
       // Use the avatar as the source image
@@ -121,7 +134,8 @@ function getTextStyleForDedication(style) {
 - Warm, heartfelt appearance with flowing letters
 - Dedication text: Medium size, centered in upper/middle area
 - "Created By Bright Kids AI": Smaller, centered at bottom
-- Text color: Warm tones (amber, brown, or deep navy)
+- Text color: Warm READABLE tones (golden amber, warm brown, soft charcoal - NOT deep navy)
+- Place on LIGHT backgrounds or add pale cream text box
 - Subtle shadows or glow for readability
 - Decorative flourishes or small hearts/stars around text`;
   } else if (styleLower.includes('2d digital')) {
