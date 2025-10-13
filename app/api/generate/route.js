@@ -1,5 +1,58 @@
 export const runtime = 'nodejs';
 
+function getTextStyleForPages(style) {
+  const styleLower = (style || '').toLowerCase();
+  
+  if (styleLower.includes('watercolor') || styleLower.includes('traditional')) {
+    return `
+TEXT RENDERING (at bottom of image):
+- Style: Hand-lettered, storybook font like classic children's books
+- Font: Flowing, organic letters with soft, painted appearance
+- Color: Warm, readable tones (deep navy, rich brown, warm colors)
+- Background: Subtle cream or parchment-colored text box with soft edges
+- Add gentle shadow or glow for readability
+- Text should look hand-painted, matching watercolor style
+- 2-3 lines maximum, centered at bottom`;
+  } else if (styleLower.includes('2d digital')) {
+    return `
+TEXT RENDERING (at bottom of image):
+- Style: Bold, clean sans-serif font like modern picture books
+- Font: Rounded, friendly letters, crisp and clear
+- Color: Dark text with bright white outline for high contrast
+- Background: Clean white or light-colored text box with rounded corners
+- Add subtle drop shadow for depth
+- Text should be perfectly legible, digital quality
+- 2-3 lines maximum, centered at bottom`;
+  } else if (styleLower.includes('comic') || styleLower.includes('graphic')) {
+    return `
+TEXT RENDERING (at bottom of image):
+- Style: BOLD COMIC BOOK LETTERING, ALL UPPERCASE
+- Font: Thick, impactful letters like comic book captions
+- Color: Black text with THICK white outline/stroke
+- Background: White speech bubble or caption box with bold border
+- Strong, attention-grabbing appearance
+- Text should command presence like comic panels
+- 2-3 lines maximum, centered at bottom`;
+  } else if (styleLower.includes('3d') || styleLower.includes('modern')) {
+    return `
+TEXT RENDERING (at bottom of image):
+- Style: Modern, smooth sans-serif with dimensional look
+- Font: Clean, rounded letters with slight 3D effect
+- Color: Dark text with subtle gradient or glossy finish
+- Background: Soft, semi-transparent modern text box
+- Add gentle shadow and highlight for depth
+- Text should look polished and contemporary
+- 2-3 lines maximum, centered at bottom`;
+  }
+  
+  return `
+TEXT RENDERING (at bottom of image):
+- Style: Clear, friendly children's book font
+- Color: High contrast with background
+- Background: Semi-transparent text box for readability
+- 2-3 lines maximum, centered at bottom`;
+}
+
 export async function POST(request) {
   try {
     // Validate API key
@@ -38,8 +91,33 @@ export async function POST(request) {
       }
 
       try {
+        // Get text styling instructions if this page has narration
+        const textInstructions = item.pageText ? getTextStyleForPages(style) : '';
+        
         // Enhanced prompt with style and formatting guidelines
-        const enhancedPrompt = `${prompt}. Style: ${style}. Palette: deep-navy, candlelight-amber, peach-coral accents, soft edges, picture-book lighting. No text, no watermarks, child-friendly, gentle faces, cozy compositions.`;
+        let enhancedPrompt = `${prompt}. Style: ${style}. Palette: deep-navy, candlelight-amber, peach-coral accents, soft edges, picture-book lighting. Child-friendly, gentle faces, cozy compositions.
+
+CRITICAL - ANATOMICAL CORRECTNESS:
+- Characters must have exactly TWO arms, TWO hands, TWO legs, TWO feet
+- Proper human proportions for children's book characters
+- All body parts in correct positions and quantities
+- No extra limbs, no missing limbs, no distorted anatomy
+- Fingers should be clearly defined (5 per hand when visible)
+- Pay careful attention to character anatomy throughout`;
+        
+        // Add text rendering instructions if we have page text
+        if (item.pageText) {
+          enhancedPrompt += `
+
+IMPORTANT - INCLUDE THIS TEXT IN THE IMAGE:
+"${item.pageText}"
+
+${textInstructions}
+
+The text must be clearly readable and beautifully integrated into the illustration style.`;
+        } else {
+          enhancedPrompt += ` No text, no watermarks.`;
+        }
 
         let imageResponse;
 
@@ -114,21 +192,21 @@ export async function POST(request) {
           continue;
         }
 
+        let imgBase64;
+        
         if ((styleBaseB64 && sourceB64) || sourceB64) {
           // For edit endpoint, OpenAI can return either JSON (b64_json) or raw binary
           const contentType = imageResponse.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
             const json = await imageResponse.json();
-            const imgBase64 = json?.data?.[0]?.b64_json;
+            imgBase64 = json?.data?.[0]?.b64_json;
             if (!imgBase64) {
               results.push({ page, error: 'No image returned (JSON response without b64_json)' });
-            } else {
-              results.push({ page, b64: imgBase64 });
+              continue;
             }
           } else {
             const imgArrayBuffer = await imageResponse.arrayBuffer();
-            const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
-            results.push({ page, b64: imgBase64 });
+            imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
           }
         } else {
           // For generation endpoint, response is JSON with URL
@@ -144,9 +222,10 @@ export async function POST(request) {
           // Fetch the image and convert to base64
           const imgResponse = await fetch(imageUrl);
           const imgArrayBuffer = await imgResponse.arrayBuffer();
-          const imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
-          results.push({ page, b64: imgBase64 });
+          imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
         }
+
+        results.push({ page, b64: imgBase64 });
 
         // Small delay between requests to be respectful to the API
         if (batch.length > 1) {

@@ -29,6 +29,8 @@ export default function StorybookPage() {
   const [story, setStory] = useState(null);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState({});
+  const [coverImage, setCoverImage] = useState(null);
+  const [dedicationImage, setDedicationImage] = useState(null);
   const [illustrateLoading, setIllustrateLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
 
@@ -397,8 +399,14 @@ export default function StorybookPage() {
       if (avatarURL && typeof avatarURL === 'string' && avatarURL.startsWith('blob:')) {
         URL.revokeObjectURL(avatarURL);
       }
+      if (coverImage && typeof coverImage === 'string' && coverImage.startsWith('blob:')) {
+        URL.revokeObjectURL(coverImage);
+      }
+      if (dedicationImage && typeof dedicationImage === 'string' && dedicationImage.startsWith('blob:')) {
+        URL.revokeObjectURL(dedicationImage);
+      }
     };
-  }, [images, avatarURL]);
+  }, [images, avatarURL, coverImage, dedicationImage]);
 
   // Convert URL to base64
   async function urlToBase64(url) {
@@ -412,6 +420,101 @@ export default function StorybookPage() {
       };
       reader.readAsDataURL(blob);
     });
+  }
+
+  async function generateCover() {
+    if (!story || !avatarURL) {
+      alert('Please generate a story and avatar first before creating the cover.');
+      return;
+    }
+
+    setIllustrateLoading(true);
+    try {
+      // Get avatar as base64
+      const avatarB64 = await urlToBase64(avatarURL);
+
+      const response = await fetch('/api/storybook/cover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: story.title,
+          childName: childInfo.name,
+          avatarB64: avatarB64,
+          style: style.illustrationStyle
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate cover');
+      }
+
+      const data = await response.json();
+      
+      if (data.coverImage) {
+        // Cleanup old cover if exists
+        if (coverImage && coverImage.startsWith('blob:')) {
+          URL.revokeObjectURL(coverImage);
+        }
+
+        // Use data URL directly
+        const dataUrl = `data:image/png;base64,${data.coverImage}`;
+        setCoverImage(dataUrl);
+        console.log('Cover generated successfully');
+      }
+    } catch (error) {
+      console.error('Cover generation failed:', error);
+      alert('Cover generation failed: ' + error.message);
+    } finally {
+      setIllustrateLoading(false);
+    }
+  }
+
+  async function generateDedication() {
+    if (!story || !avatarURL) {
+      alert('Please generate a story and avatar first before creating the dedication page.');
+      return;
+    }
+
+    setIllustrateLoading(true);
+    try {
+      // Get avatar as base64
+      const avatarB64 = await urlToBase64(avatarURL);
+
+      const response = await fetch('/api/storybook/dedication', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dedication: story.dedication || style.dedication || `For ${childInfo.name}, with love`,
+          avatarB64: avatarB64,
+          style: style.illustrationStyle
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate dedication page');
+      }
+
+      const data = await response.json();
+      
+      if (data.dedicationImage) {
+        // Cleanup old dedication if exists
+        if (dedicationImage && dedicationImage.startsWith('blob:')) {
+          URL.revokeObjectURL(dedicationImage);
+        }
+
+        // Use data URL directly
+        const dataUrl = `data:image/png;base64,${data.dedicationImage}`;
+        setDedicationImage(dataUrl);
+        console.log('Dedication page generated successfully');
+      }
+    } catch (error) {
+      console.error('Dedication generation failed:', error);
+      alert('Dedication generation failed: ' + error.message);
+    } finally {
+      setIllustrateLoading(false);
+    }
   }
 
   async function illustrateAll() {
@@ -449,7 +552,8 @@ export default function StorybookPage() {
           prompt: prompt,
           style: page.style || style.illustrationStyle,
           size: '1024x1536',
-          sourceB64: sourceB64
+          sourceB64: sourceB64,
+          pageText: page.text // Include text for overlay
         }];
 
         const response = await fetch('/api/generate', {
@@ -515,14 +619,16 @@ export default function StorybookPage() {
           prompt: `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${pageData.illustrationPrompt}. Maintain ${pageData.style || style.illustrationStyle} children's book style.`,
           style: pageData.style || style.illustrationStyle,
           size: '1024x1536',
-          sourceB64
+          sourceB64,
+          pageText: pageData.text // Include text for overlay
         }];
       } else {
         batchPayload = [{
           page: pageData.page,
           prompt: pageData.illustrationPrompt,
           style: pageData.style || style.illustrationStyle,
-          size: '1024x1536'
+          size: '1024x1536',
+          pageText: pageData.text // Include text for overlay
         }];
       }
 
@@ -563,136 +669,146 @@ export default function StorybookPage() {
     }
   }
 
+  // Helper function to sanitize text for PDF (remove non-WinAnsi characters)
+  function sanitizeForPDF(text) {
+    if (!text) return '';
+    // Replace common problematic characters
+    return text
+      .replace(/[""]/g, '"')  // Smart quotes to regular quotes
+      .replace(/['']/g, "'")  // Smart apostrophes to regular apostrophes
+      .replace(/[—–]/g, '-')  // Em/en dashes to hyphens
+      .replace(/[…]/g, '...')  // Ellipsis to three dots
+      .replace(/[^\x20-\x7E]/g, '');  // Remove any non-ASCII characters
+  }
+
   async function exportToPDF() {
     if (!story) return;
 
     try {
       const pdfDoc = await PDFDocument.create();
-      const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const helveticaBoldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-      // Title page
-      const titlePage = pdfDoc.addPage([612, 792]); // Letter size
-      const titlePageHeight = titlePage.getHeight();
-      const titlePageWidth = titlePage.getWidth();
+      // Add cover page (image only, text is in the image)
+      if (coverImage) {
+        const coverPage = pdfDoc.addPage([612, 792]); // Letter size
+        const pageHeight = coverPage.getHeight();
+        const pageWidth = coverPage.getWidth();
 
-      // Title
-      const titleFontSize = 32;
-      const titleWidth = helveticaBoldFont.widthOfTextAtSize(story.title, titleFontSize);
-      titlePage.drawText(story.title, {
-        x: (titlePageWidth - titleWidth) / 2,
-        y: titlePageHeight - 150,
-        size: titleFontSize,
-        font: helveticaBoldFont,
-        color: rgb(0.2, 0.2, 0.3),
-      });
+        try {
+          const coverResponse = await fetch(coverImage);
+          const coverBytes = await coverResponse.arrayBuffer();
+          const coverImgEmbed = await pdfDoc.embedPng(coverBytes);
 
-      // Dedication
-      if (story.dedication) {
-        const dedicationFontSize = 16;
-        const dedicationLines = story.dedication.match(/.{1,50}(\s|$)/g) || [story.dedication];
-        dedicationLines.forEach((line, index) => {
-          const lineWidth = helveticaFont.widthOfTextAtSize(line.trim(), dedicationFontSize);
-          titlePage.drawText(line.trim(), {
-            x: (titlePageWidth - lineWidth) / 2,
-            y: titlePageHeight - 250 - (index * 25),
-            size: dedicationFontSize,
-            font: helveticaFont,
-            color: rgb(0.4, 0.4, 0.5),
+          // Scale image to fill page while maintaining aspect ratio
+          const imgAspect = coverImgEmbed.width / coverImgEmbed.height;
+          const pageAspect = pageWidth / pageHeight;
+
+          let imgWidth, imgHeight, imgX, imgY;
+
+          if (imgAspect > pageAspect) {
+            // Image is wider than page
+            imgHeight = pageHeight;
+            imgWidth = imgHeight * imgAspect;
+            imgX = (pageWidth - imgWidth) / 2;
+            imgY = 0;
+          } else {
+            // Image is taller than page
+            imgWidth = pageWidth;
+            imgHeight = imgWidth / imgAspect;
+            imgX = 0;
+            imgY = (pageHeight - imgHeight) / 2;
+          }
+
+          coverPage.drawImage(coverImgEmbed, {
+            x: imgX,
+            y: imgY,
+            width: imgWidth,
+            height: imgHeight,
           });
-        });
+        } catch (coverError) {
+          console.error('Error embedding cover image:', coverError);
+        }
       }
 
-      // Story pages
+      // Add story pages (images only, text is in the images)
       for (const page of story.pages) {
-        const storyPage = pdfDoc.addPage([612, 792]);
-        const pageHeight = storyPage.getHeight();
-        const pageWidth = storyPage.getWidth();
-
-        // Add image if available
         if (images[page.page]) {
+          const storyPage = pdfDoc.addPage([612, 792]);
+          const pageHeight = storyPage.getHeight();
+          const pageWidth = storyPage.getWidth();
+
           try {
             const imageResponse = await fetch(images[page.page]);
             const imageBytes = await imageResponse.arrayBuffer();
-            const image = await pdfDoc.embedPng(imageBytes);
+            const pageImage = await pdfDoc.embedPng(imageBytes);
 
-            const imageDims = image.scale(0.5); // Scale down to fit nicely
-            const imageX = (pageWidth - imageDims.width) / 2;
-            const imageY = pageHeight - 100 - imageDims.height;
+            // Scale image to fill page while maintaining aspect ratio
+            const imgAspect = pageImage.width / pageImage.height;
+            const pageAspect = pageWidth / pageHeight;
 
-            storyPage.drawImage(image, {
-              x: imageX,
-              y: imageY,
-              width: imageDims.width,
-              height: imageDims.height,
+            let imgWidth, imgHeight, imgX, imgY;
+
+            if (imgAspect > pageAspect) {
+              imgHeight = pageHeight;
+              imgWidth = imgHeight * imgAspect;
+              imgX = (pageWidth - imgWidth) / 2;
+              imgY = 0;
+            } else {
+              imgWidth = pageWidth;
+              imgHeight = imgWidth / imgAspect;
+              imgX = 0;
+              imgY = (pageHeight - imgHeight) / 2;
+            }
+
+            storyPage.drawImage(pageImage, {
+              x: imgX,
+              y: imgY,
+              width: imgWidth,
+              height: imgHeight,
             });
           } catch (imageError) {
             console.error('Error embedding image for page', page.page, imageError);
           }
         }
-
-        // Add text
-        const textFontSize = 16;
-        const maxWidth = 500;
-        const words = page.text.split(' ');
-        const lines = [];
-        let currentLine = '';
-
-        for (const word of words) {
-          const testLine = currentLine + (currentLine ? ' ' : '') + word;
-          const testWidth = helveticaFont.widthOfTextAtSize(testLine, textFontSize);
-
-          if (testWidth <= maxWidth) {
-            currentLine = testLine;
-          } else {
-            if (currentLine) lines.push(currentLine);
-            currentLine = word;
-          }
-        }
-        if (currentLine) lines.push(currentLine);
-
-        lines.forEach((line, index) => {
-          const lineWidth = helveticaFont.widthOfTextAtSize(line, textFontSize);
-          storyPage.drawText(line, {
-            x: (pageWidth - lineWidth) / 2,
-            y: pageHeight - 600 - (index * 25),
-            size: textFontSize,
-            font: helveticaFont,
-            color: rgb(0.2, 0.2, 0.3),
-          });
-        });
-
-        // Page number
-        const pageNumText = `Page ${page.page}`;
-        const pageNumWidth = helveticaFont.widthOfTextAtSize(pageNumText, 12);
-        storyPage.drawText(pageNumText, {
-          x: (pageWidth - pageNumWidth) / 2,
-          y: 50,
-          size: 12,
-          font: helveticaFont,
-          color: rgb(0.6, 0.6, 0.7),
-        });
       }
 
-      // Affirmation page
-      if (story.affirmation) {
-        const affirmationPage = pdfDoc.addPage([612, 792]);
-        const pageHeight = affirmationPage.getHeight();
-        const pageWidth = affirmationPage.getWidth();
+      // Add dedication page (image with text, if generated)
+      if (dedicationImage) {
+        const dedicationPage = pdfDoc.addPage([612, 792]);
+        const pageHeight = dedicationPage.getHeight();
+        const pageWidth = dedicationPage.getWidth();
 
-        const affirmationFontSize = 20;
-        const affirmationLines = story.affirmation.match(/.{1,40}(\s|$)/g) || [story.affirmation];
+        try {
+          const dedicationResponse = await fetch(dedicationImage);
+          const dedicationBytes = await dedicationResponse.arrayBuffer();
+          const dedicationImgEmbed = await pdfDoc.embedPng(dedicationBytes);
 
-        affirmationLines.forEach((line, index) => {
-          const lineWidth = helveticaBoldFont.widthOfTextAtSize(line.trim(), affirmationFontSize);
-          affirmationPage.drawText(line.trim(), {
-            x: (pageWidth - lineWidth) / 2,
-            y: pageHeight - 300 - (index * 30),
-            size: affirmationFontSize,
-            font: helveticaBoldFont,
-            color: rgb(0.8, 0.4, 0.2), // Warm orange
+          // Scale image to fill page while maintaining aspect ratio
+          const imgAspect = dedicationImgEmbed.width / dedicationImgEmbed.height;
+          const pageAspect = pageWidth / pageHeight;
+
+          let imgWidth, imgHeight, imgX, imgY;
+
+          if (imgAspect > pageAspect) {
+            imgHeight = pageHeight;
+            imgWidth = imgHeight * imgAspect;
+            imgX = (pageWidth - imgWidth) / 2;
+            imgY = 0;
+          } else {
+            imgWidth = pageWidth;
+            imgHeight = imgWidth / imgAspect;
+            imgX = 0;
+            imgY = (pageHeight - imgHeight) / 2;
+          }
+
+          dedicationPage.drawImage(dedicationImgEmbed, {
+            x: imgX,
+            y: imgY,
+            width: imgWidth,
+            height: imgHeight,
           });
-        });
+        } catch (dedicationError) {
+          console.error('Error embedding dedication image:', dedicationError);
+        }
       }
 
       const pdfBytes = await pdfDoc.save();
@@ -714,7 +830,7 @@ export default function StorybookPage() {
   }
 
   async function exportImages() {
-    if (!story || Object.keys(images).length === 0) {
+    if (!story || (Object.keys(images).length === 0 && !coverImage)) {
       alert('No images to export. Please generate illustrations first.');
       return;
     }
@@ -722,13 +838,27 @@ export default function StorybookPage() {
     try {
       const zip = new JSZip();
 
-      // Add each image to the ZIP
+      // Add cover image first if available
+      if (coverImage) {
+        const coverResponse = await fetch(coverImage);
+        const coverBlob = await coverResponse.blob();
+        zip.file('00-cover.png', coverBlob);
+      }
+
+      // Add each page image to the ZIP
       for (const [pageNum, imageUrl] of Object.entries(images)) {
         if (imageUrl) {
           const response = await fetch(imageUrl);
           const imageBlob = await response.blob();
           zip.file(`page-${String(pageNum).padStart(2, '0')}.png`, imageBlob);
         }
+      }
+
+      // Add dedication page last if available
+      if (dedicationImage) {
+        const dedicationResponse = await fetch(dedicationImage);
+        const dedicationBlob = await dedicationResponse.blob();
+        zip.file('99-dedication.png', dedicationBlob);
       }
 
       // Generate ZIP file
@@ -1248,6 +1378,39 @@ export default function StorybookPage() {
                     <p className="meta" style={{marginBottom: '20px'}}>{story.summary}</p>
                   )}
 
+                  {/* Cover Page */}
+                  <div style={{marginBottom: '24px', padding: '16px', border: '2px solid var(--wendy-accent)', borderRadius: '12px', background: 'rgba(255,154,110,.05)'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                      <strong style={{color: 'var(--wendy-accent)', fontSize: '16px'}}>📖 Cover Page</strong>
+                      <button
+                        className="btn secondary"
+                        style={{fontSize: '12px', padding: '6px 10px'}}
+                        onClick={generateCover}
+                        disabled={illustrateLoading || !avatarURL}
+                      >
+                        {illustrateLoading ? 'Working...' : coverImage ? 'Regenerate cover' : 'Generate cover'}
+                      </button>
+                    </div>
+
+                    <div className="imgwrap" style={{minHeight: '300px', marginBottom: '12px'}}>
+                      {coverImage ? (
+                        <img src={coverImage} alt={`Cover for ${story.title}`} style={{maxWidth: '100%', height: 'auto', borderRadius: '8px'}} />
+                      ) : (
+                        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: 'var(--meta)'}}>
+                          <span className="meta">No cover yet</span>
+                          {!avatarURL && <span className="meta" style={{fontSize: '11px', marginTop: '8px'}}>Upload a reference photo first</span>}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{textAlign: 'center', padding: '12px', background: 'rgba(255,255,255,.02)', borderRadius: '8px'}}>
+                      <div style={{fontSize: '24px', fontWeight: 'bold', color: 'var(--text)', marginBottom: '8px'}}>{story.title}</div>
+                      {story.dedication && (
+                        <div style={{fontSize: '14px', fontStyle: 'italic', color: 'var(--meta)'}}>{story.dedication}</div>
+                      )}
+                    </div>
+                  </div>
+
                   {story.pages && story.pages.map((page) => (
                     <div key={page.page} style={{marginBottom: '24px', padding: '16px', border: '1px solid #2a3a52', borderRadius: '12px'}}>
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
@@ -1280,11 +1443,40 @@ export default function StorybookPage() {
                     </div>
                   )}
 
-                  {story.dedication && (
-                    <div style={{padding: '16px', fontStyle: 'italic', textAlign: 'center', marginTop: '16px'}}>
-                      {story.dedication}
+                  {/* Dedication Page */}
+                  <div style={{marginBottom: '24px', padding: '16px', border: '2px solid #7bd389', borderRadius: '12px', background: 'rgba(123,211,137,.05)', marginTop: '20px'}}>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                      <strong style={{color: '#7bd389', fontSize: '16px'}}>📝 Dedication Page</strong>
+                      <button
+                        className="btn secondary"
+                        style={{fontSize: '12px', padding: '6px 10px'}}
+                        onClick={generateDedication}
+                        disabled={illustrateLoading || !avatarURL || !story}
+                      >
+                        {illustrateLoading ? 'Working...' : dedicationImage ? 'Regenerate dedication' : 'Generate dedication'}
+                      </button>
                     </div>
-                  )}
+
+                    <div className="imgwrap" style={{minHeight: '300px', marginBottom: '12px'}}>
+                      {dedicationImage ? (
+                        <img src={dedicationImage} alt="Dedication page" style={{maxWidth: '100%', height: 'auto', borderRadius: '8px'}} />
+                      ) : (
+                        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px', color: 'var(--meta)'}}>
+                          <span className="meta">No dedication page yet</span>
+                          {!avatarURL && <span className="meta" style={{fontSize: '11px', marginTop: '8px'}}>Upload a reference photo first</span>}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{textAlign: 'center', padding: '12px', background: 'rgba(255,255,255,.02)', borderRadius: '8px'}}>
+                      {story?.dedication || style.dedication ? (
+                        <div style={{fontSize: '14px', fontStyle: 'italic', color: 'var(--text)', marginBottom: '8px'}}>{story?.dedication || style.dedication}</div>
+                      ) : (
+                        <div style={{fontSize: '14px', fontStyle: 'italic', color: 'var(--muted)', marginBottom: '8px'}}>For {childInfo.name}, with love</div>
+                      )}
+                      <div style={{fontSize: '12px', color: 'var(--wendy-accent)', fontWeight: 'bold'}}>Created By Bright Kids AI</div>
+                    </div>
+                  </div>
 
                   {illustrateLoading && progress.total > 0 && (
                     <div style={{marginTop: '16px'}}>
@@ -1308,7 +1500,11 @@ export default function StorybookPage() {
                     <button className="btn secondary" onClick={exportToPDF} disabled={!story}>
                       Export PDF
                     </button>
-                    <button className="btn secondary" onClick={exportImages} disabled={Object.keys(images).length === 0}>
+                    <button 
+                      className="btn secondary" 
+                      onClick={exportImages} 
+                      disabled={Object.keys(images).length === 0 && !coverImage}
+                    >
                       Export images
                     </button>
                   </div>
