@@ -119,9 +119,12 @@ export async function POST(request) {
 
     const results = [];
 
-    // Supported OpenAI sizes are square only; normalize requested sizes
-    const allowedSquareSizes = new Set(['256x256', '512x512', '1024x1024']);
-    const normalizeSize = (s) => allowedSquareSizes.has(String(s)) ? String(s) : '1024x1024';
+    // Supported sizes for gpt-image-1 (square + portrait/landscape)
+    const allowedSizes = new Set([
+      '256x256', '512x512', '1024x1024',
+      '1024x1536', '1536x1024'
+    ]);
+    const normalizeSize = (s) => allowedSizes.has(String(s)) ? String(s) : '1024x1536';
 
     // Process each image request sequentially to avoid rate limits
     for (const item of batch) {
@@ -215,7 +218,10 @@ The text must be clearly readable and beautifully integrated into the illustrati
             cache: 'no-store',
           });
         } else {
-          // Use regular generation endpoint when no source image
+          // Use dall-e-3 for generation (supports 1024x1024, 1024x1792, 1792x1024)
+          // Note: dall-e-3 doesn't support 1024x1536, so we'll generate 1024x1792 and crop
+          const dalle3Size = openAiSize === '1024x1536' ? '1024x1792' : openAiSize;
+          
           imageResponse = await fetch('https://api.openai.com/v1/images/generations', {
             method: 'POST',
             headers: {
@@ -223,9 +229,10 @@ The text must be clearly readable and beautifully integrated into the illustrati
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'dall-e-2',
+              model: 'dall-e-3',
               prompt: enhancedPrompt,
-              size: openAiSize,
+              size: dalle3Size,
+              quality: 'standard',
               n: 1
             }),
             cache: 'no-store',
@@ -260,13 +267,13 @@ The text must be clearly readable and beautifully integrated into the illustrati
             imgBase64 = Buffer.from(imgArrayBuffer).toString('base64');
           }
         } else {
-          // For generation endpoint, response is JSON with URL
+          // gpt-image-1 generations return URL, fetch and convert to base64
           const imageResult = await imageResponse.json();
           const imageUrl = imageResult.data?.[0]?.url;
-
+          
           if (!imageUrl) {
-            console.error(`No image returned for page ${page}`);
-            results.push({ page, error: 'No image returned' });
+            console.error(`No image URL returned for page ${page}`);
+            results.push({ page, error: 'No image URL returned' });
             continue;
           }
 

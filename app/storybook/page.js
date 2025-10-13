@@ -102,52 +102,64 @@ export default function StorybookPage() {
     });
   }
 
-  // Post-process image to enforce 2:3 aspect ratio (1024x1536)
-  function enforceAspectRatio(imageBlob) {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
+  // Returns a DATA URL to avoid blob URL invalidation during dev/HMR
+  async function enforceAspectRatioToDataUrl(input) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
 
-      img.onload = () => {
         const targetWidth = 1024;
         const targetHeight = 1536;
-        const targetAspect = targetWidth / targetHeight; // 2/3
-        const currentAspect = img.naturalWidth / img.naturalHeight;
-
-        // Set canvas to target dimensions
         canvas.width = targetWidth;
         canvas.height = targetHeight;
 
-        // Fill with neutral background
-        ctx.fillStyle = '#f5f5f5';
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-        let drawWidth, drawHeight, offsetX, offsetY;
-
-        if (currentAspect > targetAspect) {
-          // Image is too wide, fit by height and crop sides
-          drawHeight = targetHeight;
-          drawWidth = drawHeight * currentAspect;
-          offsetX = (targetWidth - drawWidth) / 2;
-          offsetY = 0;
+        // Normalize input to an image src string
+        let src;
+        if (typeof input === 'string') {
+          // data: URL or blob: URL
+          src = input;
+        } else if (input instanceof Blob) {
+          src = URL.createObjectURL(input);
         } else {
-          // Image is too tall or perfect, fit by width and crop/pad top/bottom
-          drawWidth = targetWidth;
-          drawHeight = drawWidth / currentAspect;
-          offsetX = 0;
-          offsetY = (targetHeight - drawHeight) / 2;
+          return reject(new Error('Unsupported input to enforceAspectRatioToDataUrl'));
         }
 
-        ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+        img.onload = () => {
+          const currentAspect = img.naturalWidth / img.naturalHeight;
+          const targetAspect = targetWidth / targetHeight;
 
-        canvas.toBlob((blob) => {
-          resolve(blob);
-        }, 'image/png', 0.95);
-      };
+          ctx.fillStyle = '#f5f5f5';
+          ctx.fillRect(0, 0, targetWidth, targetHeight);
 
-      img.onerror = reject;
-      img.src = URL.createObjectURL(imageBlob);
+          let drawWidth, drawHeight, offsetX, offsetY;
+          if (currentAspect > targetAspect) {
+            drawHeight = targetHeight;
+            drawWidth = drawHeight * currentAspect;
+            offsetX = (targetWidth - drawWidth) / 2;
+            offsetY = 0;
+          } else {
+            drawWidth = targetWidth;
+            drawHeight = drawWidth / currentAspect;
+            offsetX = 0;
+            offsetY = (targetHeight - drawHeight) / 2;
+          }
+
+          ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+          const dataUrl = canvas.toDataURL('image/png', 0.95);
+          resolve(dataUrl);
+
+          if (src.startsWith('blob:')) {
+            URL.revokeObjectURL(src);
+          }
+        };
+
+        img.onerror = reject;
+        img.src = src;
+      } catch (e) {
+        reject(e);
+      }
     });
   }
 
@@ -253,15 +265,16 @@ export default function StorybookPage() {
         console.log('Base64 starts with:', result.b64.substring(0, 50));
 
         try {
-          // Prefer a data URL directly to avoid blob URL lifecycle issues in dev/HMR
-          const dataUrl = `data:image/png;base64,${result.b64}`;
+          // Enforce 2:3 (1024x1536) and store as DATA URL to avoid blob invalidation
+          const srcDataUrl = `data:image/png;base64,${result.b64}`;
+          const fixedDataUrl = await enforceAspectRatioToDataUrl(srcDataUrl);
 
           // Cleanup old avatar URL if it was a blob URL
           if (avatarURL && avatarURL.startsWith('blob:')) {
             URL.revokeObjectURL(avatarURL);
           }
 
-          setAvatarURL(dataUrl);
+          setAvatarURL(fixedDataUrl);
 
           // Store metadata for testability
           setAvatarMeta({
@@ -410,16 +423,25 @@ export default function StorybookPage() {
 
   // Convert URL to base64
   async function urlToBase64(url) {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result.split(',')[1]; // Remove data:image/png;base64, prefix
-        resolve(base64);
-      };
-      reader.readAsDataURL(blob);
-    });
+    // Fast path for data URLs
+    if (typeof url === 'string' && url.startsWith('data:image')) {
+      return url.split(',')[1];
+    }
+
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result.split(',')[1]; // Remove data:image/png;base64, prefix
+          resolve(base64);
+        };
+        reader.readAsDataURL(blob);
+      });
+    } catch (err) {
+      throw new Error('Could not read image data; the URL may be invalidated. Please regenerate the image.');
+    }
   }
 
   async function generateCover() {
@@ -457,9 +479,9 @@ export default function StorybookPage() {
           URL.revokeObjectURL(coverImage);
         }
 
-        // Use data URL directly
-        const dataUrl = `data:image/png;base64,${data.coverImage}`;
-        setCoverImage(dataUrl);
+        // Enforce 2:3 (1024x1536) and store as DATA URL
+        const fixedDataUrl = await enforceAspectRatioToDataUrl(`data:image/png;base64,${data.coverImage}`);
+        setCoverImage(fixedDataUrl);
         console.log('Cover generated successfully');
       }
     } catch (error) {
@@ -504,9 +526,9 @@ export default function StorybookPage() {
           URL.revokeObjectURL(dedicationImage);
         }
 
-        // Use data URL directly
-        const dataUrl = `data:image/png;base64,${data.dedicationImage}`;
-        setDedicationImage(dataUrl);
+        // Enforce 2:3 (1024x1536) and store as DATA URL
+        const fixedDataUrl = await enforceAspectRatioToDataUrl(`data:image/png;base64,${data.dedicationImage}`);
+        setDedicationImage(fixedDataUrl);
         console.log('Dedication page generated successfully');
       }
     } catch (error) {
@@ -519,82 +541,105 @@ export default function StorybookPage() {
 
   async function illustrateAll() {
     if (!story?.pages || story.pages.length === 0) return;
+    if (!avatarURL) {
+      alert('Please generate an avatar first before illustrating all pages.');
+      return;
+    }
 
     setIllustrateLoading(true);
 
-    // Decide pages to generate. If cover missing but we have an avatar, generate page 1 first using avatar as source
-    const needCover = !images[1] && !!avatarURL;
-    const pagesToGenerate = needCover ? story.pages : story.pages.filter(p => p.page > 1);
-    setProgress({ current: 0, total: pagesToGenerate.length });
-
     try {
-      const newImages = { ...images };
-      let previousPageB64 = images[1] ? await urlToBase64(images[1]) : null; // Start with cover when available
+      let totalSteps = 0;
+      let currentStep = 0;
 
-      // Generate pages 2..N sequentially
-      for (let i = 0; i < pagesToGenerate.length; i++) {
-        const page = pagesToGenerate[i];
-        setProgress({ current: i, total: pagesToGenerate.length });
+      // Count what needs to be generated
+      const needCover = !coverImage;
+      const needDedication = !dedicationImage;
+      const missingPages = story.pages.filter(p => !images[p.page]);
+      
+      totalSteps = (needCover ? 1 : 0) + missingPages.length + (needDedication ? 1 : 0);
+      setProgress({ current: 0, total: totalSteps });
 
-        // For page 1 use avatar as the source if available; otherwise use previous page
-        let prompt;
-        let sourceB64 = previousPageB64;
-        if (page.page === 1 && avatarURL) {
-          sourceB64 = await urlToBase64(avatarURL);
-          prompt = `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${page.illustrationPrompt}. Maintain ${page.style || style.illustrationStyle} children's book style.`;
-        } else {
-          // Non-cover pages - use previous page as source for consistency
-          prompt = `Keep the same main character(s) and visual style as the previous page image (hair, clothing, skin tone, proportions, palette). Now depict: ${page.illustrationPrompt}.`;
-        }
-
-        const batch = [{
-          page: page.page,
-          prompt: prompt,
-          style: page.style || style.illustrationStyle,
-          size: '1024x1536',
-          sourceB64: sourceB64,
-          pageText: page.text // Include text for overlay
-        }];
-
-        const response = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ batch })
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to generate images');
-        }
-
-        const data = await response.json();
-        const result = data.results[0];
-
-        if (result.b64) {
-          // Cleanup old image URL if exists
-          if (newImages[result.page]) {
-            URL.revokeObjectURL(newImages[result.page]);
-          }
-
-          // Use a data URL directly; avoids blob revoke timing issues
-          const dataUrl = `data:image/png;base64,${result.b64}`;
-          newImages[result.page] = dataUrl;
-
-          // Update previousPageB64 for next iteration
-          previousPageB64 = result.b64;
-        } else if (result.error) {
-          console.error(`Failed to generate image for page ${result.page}:`, result.error);
-          throw new Error(`Failed to generate image for page ${result.page}: ${result.error}`);
-        }
-
-        // Small delay between requests
-        if (i < story.pages.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+      // Step 1: Generate cover if missing
+      if (needCover) {
+        setProgress({ current: currentStep++, total: totalSteps });
+        await generateCover();
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      setProgress({ current: story.pages.length, total: story.pages.length });
-      setImages(newImages);
+      // Step 2: Generate missing story pages sequentially
+      if (missingPages.length > 0) {
+        const newImages = { ...images };
+        let previousPageB64 = images[1] ? await urlToBase64(images[1]) : null;
+
+        for (let i = 0; i < missingPages.length; i++) {
+          const page = missingPages[i];
+          setProgress({ current: currentStep++, total: totalSteps });
+
+          // For page 1 use avatar as the source if available; otherwise use previous page
+          let prompt;
+          let sourceB64 = previousPageB64;
+          if (page.page === 1 && avatarURL) {
+            sourceB64 = await urlToBase64(avatarURL);
+            prompt = `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${page.illustrationPrompt}. Maintain ${page.style || style.illustrationStyle} children's book style.`;
+          } else {
+            // Non-cover pages - use previous page as source for consistency
+            prompt = `Keep the same main character(s) and visual style as the previous page image (hair, clothing, skin tone, proportions, palette). Now depict: ${page.illustrationPrompt}.`;
+          }
+
+          const batch = [{
+            page: page.page,
+            prompt: prompt,
+            style: page.style || style.illustrationStyle,
+            size: '1024x1536',
+            sourceB64: sourceB64,
+            pageText: page.text
+          }];
+
+          const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch })
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to generate images');
+          }
+
+          const data = await response.json();
+          const result = data.results[0];
+
+          if (result.b64) {
+            if (newImages[result.page]) {
+              URL.revokeObjectURL(newImages[result.page]);
+            }
+
+            const fixedDataUrl = await enforceAspectRatioToDataUrl(`data:image/png;base64,${result.b64}`);
+            newImages[result.page] = fixedDataUrl;
+            previousPageB64 = result.b64;
+          } else if (result.error) {
+            console.error(`Failed to generate image for page ${result.page}:`, result.error);
+            throw new Error(`Failed to generate image for page ${result.page}: ${result.error}`);
+          }
+
+          // Small delay between requests
+          if (i < missingPages.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+
+        setImages(newImages);
+      }
+
+      // Step 3: Generate dedication if missing
+      if (needDedication) {
+        setProgress({ current: currentStep++, total: totalSteps });
+        await generateDedication();
+      }
+
+      setProgress({ current: totalSteps, total: totalSteps });
+      console.log('All illustrations generated successfully');
     } catch (error) {
       console.error('Image generation failed:', error);
       alert('Image generation failed: ' + error.message);
@@ -652,11 +697,11 @@ export default function StorybookPage() {
           URL.revokeObjectURL(images[page]);
         }
 
-        // Use data URL directly to display
-        const dataUrl = `data:image/png;base64,${result.b64}`;
+        // Enforce 2:3 (1024x1536) and store as DATA URL
+        const fixedDataUrl = await enforceAspectRatioToDataUrl(`data:image/png;base64,${result.b64}`);
         setImages(prev => ({
           ...prev,
-          [page]: dataUrl
+          [page]: fixedDataUrl
         }));
       } else if (result.error) {
         throw new Error(result.error);
@@ -698,24 +743,24 @@ export default function StorybookPage() {
           const coverBytes = await coverResponse.arrayBuffer();
           const coverImgEmbed = await pdfDoc.embedPng(coverBytes);
 
-          // Scale image to fill page while maintaining aspect ratio
+          // Scale image to FIT within page while maintaining aspect ratio (no cropping)
           const imgAspect = coverImgEmbed.width / coverImgEmbed.height;
           const pageAspect = pageWidth / pageHeight;
 
           let imgWidth, imgHeight, imgX, imgY;
 
           if (imgAspect > pageAspect) {
-            // Image is wider than page
-            imgHeight = pageHeight;
-            imgWidth = imgHeight * imgAspect;
-            imgX = (pageWidth - imgWidth) / 2;
-            imgY = 0;
-          } else {
-            // Image is taller than page
+            // Image is wider than page - fit by width
             imgWidth = pageWidth;
             imgHeight = imgWidth / imgAspect;
             imgX = 0;
             imgY = (pageHeight - imgHeight) / 2;
+          } else {
+            // Image is taller than page - fit by height
+            imgHeight = pageHeight;
+            imgWidth = imgHeight * imgAspect;
+            imgX = (pageWidth - imgWidth) / 2;
+            imgY = 0;
           }
 
           coverPage.drawImage(coverImgEmbed, {
@@ -741,22 +786,24 @@ export default function StorybookPage() {
             const imageBytes = await imageResponse.arrayBuffer();
             const pageImage = await pdfDoc.embedPng(imageBytes);
 
-            // Scale image to fill page while maintaining aspect ratio
+            // Scale image to FIT within page while maintaining aspect ratio (no cropping)
             const imgAspect = pageImage.width / pageImage.height;
             const pageAspect = pageWidth / pageHeight;
 
             let imgWidth, imgHeight, imgX, imgY;
 
             if (imgAspect > pageAspect) {
-              imgHeight = pageHeight;
-              imgWidth = imgHeight * imgAspect;
-              imgX = (pageWidth - imgWidth) / 2;
-              imgY = 0;
-            } else {
+              // Image is wider than page - fit by width
               imgWidth = pageWidth;
               imgHeight = imgWidth / imgAspect;
               imgX = 0;
               imgY = (pageHeight - imgHeight) / 2;
+            } else {
+              // Image is taller than page - fit by height
+              imgHeight = pageHeight;
+              imgWidth = imgHeight * imgAspect;
+              imgX = (pageWidth - imgWidth) / 2;
+              imgY = 0;
             }
 
             storyPage.drawImage(pageImage, {
@@ -782,22 +829,24 @@ export default function StorybookPage() {
           const dedicationBytes = await dedicationResponse.arrayBuffer();
           const dedicationImgEmbed = await pdfDoc.embedPng(dedicationBytes);
 
-          // Scale image to fill page while maintaining aspect ratio
+          // Scale image to FIT within page while maintaining aspect ratio (no cropping)
           const imgAspect = dedicationImgEmbed.width / dedicationImgEmbed.height;
           const pageAspect = pageWidth / pageHeight;
 
           let imgWidth, imgHeight, imgX, imgY;
 
           if (imgAspect > pageAspect) {
-            imgHeight = pageHeight;
-            imgWidth = imgHeight * imgAspect;
-            imgX = (pageWidth - imgWidth) / 2;
-            imgY = 0;
-          } else {
+            // Image is wider than page - fit by width
             imgWidth = pageWidth;
             imgHeight = imgWidth / imgAspect;
             imgX = 0;
             imgY = (pageHeight - imgHeight) / 2;
+          } else {
+            // Image is taller than page - fit by height
+            imgHeight = pageHeight;
+            imgWidth = imgHeight * imgAspect;
+            imgX = (pageWidth - imgWidth) / 2;
+            imgY = 0;
           }
 
           dedicationPage.drawImage(dedicationImgEmbed, {
