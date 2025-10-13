@@ -158,6 +158,16 @@ CRITICAL - ANATOMICAL CORRECTNESS:
 - No extra limbs, no missing limbs, no distorted anatomy
 - Fingers should be clearly defined (5 per hand when visible)
 - Pay careful attention to character anatomy throughout`;
+
+        // If a style reference image is provided, make the style-matching explicit
+        if (styleBaseB64) {
+          enhancedPrompt += `
+
+STYLE REFERENCE:
+- You are given a style reference image. Match its rendering style EXACTLY:
+  line quality, brush/texture, color palette, lighting, shading, and overall finish.
+- DO NOT copy subjects or text from the reference. Only replicate the visual style.`;
+        }
         
         // Add text rendering instructions if we have page text
         if (item.pageText) {

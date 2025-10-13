@@ -42,12 +42,19 @@ export default function StorybookPage() {
   const [showTooltip, setShowTooltip] = useState(false);
   const [hoveredStyle, setHoveredStyle] = useState(null);
   const [avatarMeta, setAvatarMeta] = useState(null);
+  const [avatarDescription, setAvatarDescription] = useState('');
+  const [avatarFromDescBusy, setAvatarFromDescBusy] = useState(false);
 
   // Auto-regenerate avatar when style changes
   useEffect(() => {
-    if (referenceFile && avatarURL && !avatarBusy) {
-      console.log('Style changed to:', style.illustrationStyle, '- regenerating avatar');
-      generateAvatarFromReference(referenceFile, style.illustrationStyle);
+    if (avatarURL && !avatarBusy && !avatarFromDescBusy) {
+      if (referenceFile) {
+        console.log('Style changed to:', style.illustrationStyle, '- regenerating avatar from reference');
+        generateAvatarFromReference(referenceFile, style.illustrationStyle);
+      } else if (avatarDescription.trim()) {
+        console.log('Style changed to:', style.illustrationStyle, '- regenerating avatar from description');
+        generateAvatarFromDescription(avatarDescription, style.illustrationStyle);
+      }
     }
   }, [style.illustrationStyle]);
 
@@ -303,6 +310,79 @@ export default function StorybookPage() {
     }
   }
 
+  async function generateAvatarFromDescription(description, currentStyle) {
+    const desc = (description || '').trim();
+    if (!desc) {
+      alert('Please enter a child description first.');
+      return;
+    }
+
+    setAvatarFromDescBusy(true);
+    setAvatarError(null);
+
+    try {
+      const styleImagePath = getStyleImagePath(currentStyle);
+      const styleImageB64 = await loadStyleImageAsBase64(styleImagePath);
+
+      const avatarPrompt =
+        `Create a front-facing, friendly child character portrait (waist-up or full-body) in ${currentStyle} children's book style. ` +
+        `Base the appearance on this description: ${desc}. Ensure natural proportions (two arms, two legs, five fingers per hand), ` +
+        `a consistent look for future pages (hair, skin tone, face shape, clothing colors), soft cheerful palette, and a clean background. ` +
+        `No text, no watermarks, no borders.`;
+
+      const batch = [{
+        page: 1,
+        prompt: avatarPrompt,
+        style: currentStyle,
+        size: '1024x1536',
+        // Use the selected style tile as the 'source' so we go through the edits endpoint
+        sourceB64: styleImageB64,
+        styleBaseB64: styleImageB64
+      }];
+
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Avatar generation failed (${response.status})`);
+      }
+
+      const data = await response.json();
+      const result = data.results[0];
+
+      if (result.b64) {
+        const srcDataUrl = `data:image/png;base64,${result.b64}`;
+        const fixedDataUrl = await enforceAspectRatioToDataUrl(srcDataUrl);
+
+        if (avatarURL && avatarURL.startsWith('blob:')) {
+          URL.revokeObjectURL(avatarURL);
+        }
+
+        setAvatarURL(fixedDataUrl);
+        setReferenceFile(null);
+        setAvatarMeta({
+          styleUsed: currentStyle,
+          width: 1024,
+          height: 1536,
+          source: 'description'
+        });
+        setAvatarError(null);
+        console.log('Avatar generated successfully from description with style:', currentStyle);
+      } else if (result.error) {
+        throw new Error(result.error);
+      }
+    } catch (err) {
+      console.error('Avatar (description) generation failed:', err);
+      setAvatarError(err.message);
+    } finally {
+      setAvatarFromDescBusy(false);
+    }
+  }
+
   function handleReferenceFileChange(e) {
     const file = e.target.files?.[0] || null;
     setReferenceFile(file);
@@ -322,6 +402,8 @@ export default function StorybookPage() {
   function regenerateAvatar() {
     if (referenceFile) {
       generateAvatarFromReference(referenceFile, style.illustrationStyle);
+    } else if (avatarDescription.trim()) {
+      generateAvatarFromDescription(avatarDescription, style.illustrationStyle);
     }
   }
 
@@ -570,29 +652,22 @@ export default function StorybookPage() {
       // Step 2: Generate missing story pages sequentially
       if (missingPages.length > 0) {
         const newImages = { ...images };
-        let previousPageB64 = images[1] ? await urlToBase64(images[1]) : null;
+        // Always use avatar as reference for all pages (not previous page)
+        const avatarB64 = avatarURL ? await urlToBase64(avatarURL) : null;
 
         for (let i = 0; i < missingPages.length; i++) {
           const page = missingPages[i];
           setProgress({ current: currentStep++, total: totalSteps });
 
-          // For page 1 use avatar as the source if available; otherwise use previous page
-          let prompt;
-          let sourceB64 = previousPageB64;
-          if (page.page === 1 && avatarURL) {
-            sourceB64 = await urlToBase64(avatarURL);
-            prompt = `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${page.illustrationPrompt}. Maintain ${page.style || style.illustrationStyle} children's book style.`;
-          } else {
-            // Non-cover pages - use previous page as source for consistency
-            prompt = `Keep the same main character(s) and visual style as the previous page image (hair, clothing, skin tone, proportions, palette). Now depict: ${page.illustrationPrompt}.`;
-          }
+          // Always use avatar as the source for character consistency
+          const prompt = `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${page.illustrationPrompt}. Maintain ${page.style || style.illustrationStyle} children's book style.`;
 
           const batch = [{
             page: page.page,
             prompt: prompt,
             style: page.style || style.illustrationStyle,
             size: '1024x1536',
-            sourceB64: sourceB64,
+            sourceB64: avatarB64,
             pageText: page.text
           }];
 
@@ -617,7 +692,6 @@ export default function StorybookPage() {
 
             const fixedDataUrl = await enforceAspectRatioToDataUrl(`data:image/png;base64,${result.b64}`);
             newImages[result.page] = fixedDataUrl;
-            previousPageB64 = result.b64;
           } else if (result.error) {
             console.error(`Failed to generate image for page ${result.page}:`, result.error);
             throw new Error(`Failed to generate image for page ${result.page}: ${result.error}`);
@@ -655,27 +729,16 @@ export default function StorybookPage() {
       const pageData = story.pages.find(p => p.page === page);
       if (!pageData) return;
 
-      // Build batch; if illustrating page 1 and avatar exists, use it as source
-      let batchPayload;
-      if (page === 1 && avatarURL) {
-        const sourceB64 = await urlToBase64(avatarURL);
-        batchPayload = [{
-          page: pageData.page,
-          prompt: `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${pageData.illustrationPrompt}. Maintain ${pageData.style || style.illustrationStyle} children's book style.`,
-          style: pageData.style || style.illustrationStyle,
-          size: '1024x1536',
-          sourceB64,
-          pageText: pageData.text // Include text for overlay
-        }];
-      } else {
-        batchPayload = [{
-          page: pageData.page,
-          prompt: pageData.illustrationPrompt,
-          style: pageData.style || style.illustrationStyle,
-          size: '1024x1536',
-          pageText: pageData.text // Include text for overlay
-        }];
-      }
+      // Always use avatar as source for character consistency
+      const sourceB64 = avatarURL ? await urlToBase64(avatarURL) : null;
+      const batchPayload = [{
+        page: pageData.page,
+        prompt: `Keep the same main character as the provided source image (face, hair, skin tone, proportions, clothing). Now depict: ${pageData.illustrationPrompt}. Maintain ${pageData.style || style.illustrationStyle} children's book style.`,
+        style: pageData.style || style.illustrationStyle,
+        size: '1024x1536',
+        sourceB64,
+        pageText: pageData.text
+      }];
 
       const response = await fetch('/api/generate', {
         method: 'POST',
@@ -1309,7 +1372,48 @@ export default function StorybookPage() {
                     />
                   </div>
 
-                  <div className="meta" style={{fontSize: '12px', marginBottom: '12px'}}>Your avatar sets the character look for the cover and all pages.</div>
+                  {/* Child description alternative */}
+                  <div style={{marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(42, 58, 82, 0.3)'}}>
+                    <label htmlFor="childDescription" style={{display: 'block', fontWeight: 600, marginBottom: 8, fontSize: 14}}>
+                      Child description (if you do not want to upload a photo)
+                    </label>
+                    <textarea
+                      id="childDescription"
+                      value={avatarDescription}
+                      onChange={(e) => setAvatarDescription(e.target.value)}
+                      rows={3}
+                      placeholder="Example: A 6-year-old girl with short dark hair, warm brown eyes, medium-light skin, loves stars and planets, usually wears a lavender shirt and comfy jeans."
+                      style={{
+                        width: '100%',
+                        padding: 8,
+                        resize: 'vertical',
+                        border: '1px solid #2a3a52',
+                        borderRadius: 4,
+                        fontFamily: 'inherit',
+                        background: 'var(--ink)',
+                        color: 'inherit'
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => generateAvatarFromDescription(avatarDescription, style.illustrationStyle)}
+                      disabled={!avatarDescription.trim() || avatarBusy || avatarFromDescBusy}
+                      style={{
+                        marginTop: 8,
+                        padding: '8px 16px',
+                        backgroundColor: (!avatarDescription.trim() || avatarBusy || avatarFromDescBusy) ? '#666' : 'var(--wendy-accent)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        cursor: (!avatarDescription.trim() || avatarBusy || avatarFromDescBusy) ? 'not-allowed' : 'pointer',
+                        fontSize: '14px'
+                      }}
+                    >
+                      {avatarFromDescBusy ? 'Generating avatar from description...' : 'Generate avatar from description'}
+                    </button>
+                  </div>
+
+                  <div className="meta" style={{fontSize: '12px', marginTop: '12px', marginBottom: '12px'}}>Your avatar sets the character look for the cover and all pages.</div>
 
                   {avatarBusy && avatarURL && (
                     <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
@@ -1321,7 +1425,14 @@ export default function StorybookPage() {
                   {avatarBusy && !avatarURL && (
                     <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
                       <div style={{width: '16px', height: '16px', border: '2px solid var(--wendy-accent)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite'}}></div>
-                      <span style={{fontSize: '12px'}}>Generating avatar...</span>
+                      <span style={{fontSize: '12px'}}>Generating avatar from photo...</span>
+                    </div>
+                  )}
+
+                  {avatarFromDescBusy && !avatarURL && (
+                    <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
+                      <div style={{width: '16px', height: '16px', border: '2px solid var(--wendy-accent)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite'}}></div>
+                      <span style={{fontSize: '12px'}}>Generating avatar from description...</span>
                     </div>
                   )}
 
