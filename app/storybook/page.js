@@ -534,23 +534,28 @@ export default function StorybookPage() {
 
     setIllustrateLoading(true);
     try {
-      // Get avatar as base64
-      const avatarB64 = await urlToBase64(avatarURL);
+      // Get avatar as Blob directly (works for data: URLs too)
+      const avatarBlob = await (await fetch(avatarURL, { cache: 'no-store' })).blob();
+
+      const formData = new FormData();
+      formData.append('title', story.title);
+      formData.append('childName', childInfo.name);
+      formData.append('style', style.illustrationStyle);
+      formData.append('avatar', avatarBlob, 'avatar.png');
 
       const response = await fetch('/api/storybook/cover', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: story.title,
-          childName: childInfo.name,
-          avatarB64: avatarB64,
-          style: style.illustrationStyle
-        })
+        body: formData
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate cover');
+        let errorDetails;
+        try {
+          errorDetails = await response.json();
+        } catch {
+          errorDetails = { error: await response.text() };
+        }
+        throw new Error(errorDetails.error || 'Failed to generate cover');
       }
 
       const data = await response.json();
@@ -582,22 +587,27 @@ export default function StorybookPage() {
 
     setIllustrateLoading(true);
     try {
-      // Get avatar as base64
-      const avatarB64 = await urlToBase64(avatarURL);
+      // Get avatar as Blob directly (works for data: URLs too)
+      const avatarBlob = await (await fetch(avatarURL, { cache: 'no-store' })).blob();
+
+      const formData = new FormData();
+      formData.append('dedication', story.dedication || style.dedication || `For ${childInfo.name}, with love`);
+      formData.append('style', style.illustrationStyle);
+      formData.append('avatar', avatarBlob, 'avatar.png');
 
       const response = await fetch('/api/storybook/dedication', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          dedication: story.dedication || style.dedication || `For ${childInfo.name}, with love`,
-          avatarB64: avatarB64,
-          style: style.illustrationStyle
-        })
+        body: formData
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to generate dedication page');
+        let errorDetails;
+        try {
+          errorDetails = await response.json();
+        } catch {
+          errorDetails = { error: await response.text() };
+        }
+        throw new Error(errorDetails.error || 'Failed to generate dedication page');
       }
 
       const data = await response.json();

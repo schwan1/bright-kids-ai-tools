@@ -49,16 +49,42 @@ export async function POST(request) {
       return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), { status: 500 });
     }
 
-    const data = await request.json();
-    const { title, childName, avatarB64, style } = data;
+    const contentType = request.headers.get('content-type') || '';
+    let title, childName, style, imageBlob;
+
+    if (contentType.includes('multipart/form-data')) {
+      // Handle multipart/form-data (binary upload - more efficient)
+      const formData = await request.formData();
+      title = formData.get('title');
+      childName = formData.get('childName');
+      style = formData.get('style');
+      const avatarFile = formData.get('avatar');
+      
+      if (!avatarFile || !avatarFile.arrayBuffer) {
+        return new Response(JSON.stringify({ error: 'Avatar image is required for cover generation' }), { status: 400 });
+      }
+      
+      const buffer = Buffer.from(await avatarFile.arrayBuffer());
+      imageBlob = new Blob([buffer], { type: avatarFile.type || 'image/png' });
+    } else {
+      // Handle JSON (base64 - backward compatible)
+      const data = await request.json();
+      title = data.title;
+      childName = data.childName;
+      style = data.style;
+      const avatarB64 = data.avatarB64;
+      
+      if (!avatarB64) {
+        return new Response(JSON.stringify({ error: 'Avatar image is required for cover generation' }), { status: 400 });
+      }
+      
+      const imageBuffer = Buffer.from(avatarB64, 'base64');
+      imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+    }
 
     // Basic validation
     if (!title || !childName) {
       return new Response(JSON.stringify({ error: 'Title and child name are required' }), { status: 400 });
-    }
-
-    if (!avatarB64) {
-      return new Response(JSON.stringify({ error: 'Avatar image is required for cover generation' }), { status: 400 });
     }
 
     try {
@@ -105,22 +131,19 @@ CRITICAL TEXT FITTING RULES:
 - The character should be the hero of their story, front and center`;
 
       // Use the avatar as the source image to maintain character consistency
-      const formData = new FormData();
-      
-      const imageBuffer = Buffer.from(avatarB64, 'base64');
-      const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+      const apiFormData = new FormData();
 
-      formData.append('model', 'gpt-image-1');
-      formData.append('prompt', coverPrompt);
-      formData.append('image', imageBlob, 'avatar.png');
-      formData.append('size', '1024x1536'); // 2:3 aspect ratio matching style images
+      apiFormData.append('model', 'gpt-image-1');
+      apiFormData.append('prompt', coverPrompt);
+      apiFormData.append('image', imageBlob, 'avatar.png');
+      apiFormData.append('size', '1024x1536'); // 2:3 aspect ratio matching style images
 
       const imageResponse = await fetch('https://api.openai.com/v1/images/edits', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         },
-        body: formData,
+        body: apiFormData,
         cache: 'no-store',
       });
 

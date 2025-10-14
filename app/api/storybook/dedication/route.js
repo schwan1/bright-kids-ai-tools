@@ -8,11 +8,35 @@ export async function POST(request) {
       return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), { status: 500 });
     }
 
-    const data = await request.json();
-    const { dedication, style, avatarB64 } = data;
+    const contentType = request.headers.get('content-type') || '';
+    let dedication, style, imageBlob;
 
-    if (!avatarB64) {
-      return new Response(JSON.stringify({ error: 'Avatar image required for dedication page' }), { status: 400 });
+    if (contentType.includes('multipart/form-data')) {
+      // Handle multipart/form-data (binary upload - more efficient)
+      const formData = await request.formData();
+      dedication = formData.get('dedication');
+      style = formData.get('style');
+      const avatarFile = formData.get('avatar');
+      
+      if (!avatarFile || !avatarFile.arrayBuffer) {
+        return new Response(JSON.stringify({ error: 'Avatar image required for dedication page' }), { status: 400 });
+      }
+      
+      const buffer = Buffer.from(await avatarFile.arrayBuffer());
+      imageBlob = new Blob([buffer], { type: avatarFile.type || 'image/png' });
+    } else {
+      // Handle JSON (base64 - backward compatible)
+      const data = await request.json();
+      dedication = data.dedication;
+      style = data.style;
+      const avatarB64 = data.avatarB64;
+      
+      if (!avatarB64) {
+        return new Response(JSON.stringify({ error: 'Avatar image required for dedication page' }), { status: 400 });
+      }
+      
+      const imageBuffer = Buffer.from(avatarB64, 'base64');
+      imageBlob = new Blob([imageBuffer], { type: 'image/png' });
     }
 
     try {
@@ -60,22 +84,19 @@ CRITICAL TEXT FITTING RULES:
 - Leave the character visible but ensure text has prominence`;
 
       // Use the avatar as the source image
-      const formData = new FormData();
-      
-      const imageBuffer = Buffer.from(avatarB64, 'base64');
-      const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
+      const apiFormData = new FormData();
 
-      formData.append('model', 'gpt-image-1');
-      formData.append('prompt', dedicationPrompt);
-      formData.append('image', imageBlob, 'avatar.png');
-      formData.append('size', '1024x1536'); // 2:3 aspect ratio
+      apiFormData.append('model', 'gpt-image-1');
+      apiFormData.append('prompt', dedicationPrompt);
+      apiFormData.append('image', imageBlob, 'avatar.png');
+      apiFormData.append('size', '1024x1536'); // 2:3 aspect ratio
 
       const imageResponse = await fetch('https://api.openai.com/v1/images/edits', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
         },
-        body: formData,
+        body: apiFormData,
         cache: 'no-store',
       });
 
