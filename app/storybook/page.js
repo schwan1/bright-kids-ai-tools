@@ -1,7 +1,48 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import JSZip from 'jszip';
+
+// Generation time message constants
+const GEN_MSG_IMAGE = 'Image generation typically takes 1–3 minutes. Please keep this tab open.';
+const GEN_MSG_ALL = 'Creating all illustrations can take 6–12 minutes depending on your page count. Please keep this tab open.';
+
+// GenerationPopup component
+function GenerationPopup({ anchorRef, message }) {
+  if (!anchorRef?.current || !message) return null;
+
+  try {
+    const rect = anchorRef.current.getBoundingClientRect();
+    const top = rect.bottom + window.scrollY + 8;
+    const desiredLeft = rect.left + window.scrollX;
+    const maxLeft = Math.max(8, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 300);
+    const left = Math.min(desiredLeft, maxLeft);
+
+    return (
+      <div role="status" aria-live="polite" style={{
+        position: 'fixed',
+        top,
+        left,
+        maxWidth: 280,
+        zIndex: 1000,
+        background: 'var(--ink)',
+        border: '1px solid #2a3a52',
+        borderRadius: 8,
+        padding: '10px 12px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.4)',
+        color: 'var(--text)',
+        pointerEvents: 'none',
+        whiteSpace: 'normal',
+        lineHeight: 1.3
+      }}>
+        {message}
+      </div>
+    );
+  } catch (error) {
+    console.error('Error rendering GenerationPopup:', error);
+    return null;
+  }
+}
 
 export default function StorybookPage() {
   const [childInfo, setChildInfo] = useState({
@@ -9,7 +50,8 @@ export default function StorybookPage() {
     age: 5,
     interests: '',
     readingLevel: 'Pre-reader',
-    sensitivities: ''
+    sensitivities: '',
+    favoriteToy: ''
   });
 
   const [goal, setGoal] = useState({
@@ -45,6 +87,33 @@ export default function StorybookPage() {
   const [avatarDescription, setAvatarDescription] = useState('');
   const [avatarFromDescBusy, setAvatarFromDescBusy] = useState(false);
 
+  // Popup state and refs
+  const [genPopup, setGenPopup] = useState(null);
+  const coverBtnRef = useRef(null);
+  const dedicationBtnRef = useRef(null);
+  const illustrateAllRef = useRef(null);
+  const avatarContainerRef = useRef(null);
+  const avatarDescBtnRef = useRef(null);
+  const avatarRegenRef = useRef(null);
+  const pageRefs = useRef({});
+
+  function showGenPopup(anchorRef, message) {
+    console.log('showGenPopup called:', { 
+      hasRef: !!anchorRef, 
+      hasCurrent: !!anchorRef?.current,
+      message: message?.substring(0, 30) + '...'
+    });
+    if (!anchorRef || !anchorRef.current) {
+      console.warn('showGenPopup: ref or ref.current is null');
+      return;
+    }
+    setGenPopup({ anchorRef, message });
+  }
+
+  function hideGenPopup() {
+    setGenPopup(null);
+  }
+
   // Auto-regenerate avatar when style changes
   useEffect(() => {
     if (avatarURL && !avatarBusy && !avatarFromDescBusy) {
@@ -57,6 +126,13 @@ export default function StorybookPage() {
       }
     }
   }, [style.illustrationStyle]);
+
+  // Cleanup popup on unmount to prevent stale state during hot reloading
+  useEffect(() => {
+    return () => {
+      hideGenPopup();
+    };
+  }, []);
 
   // Convert any image file to PNG format with size optimization
   function convertToPNG(file) {
@@ -307,6 +383,7 @@ export default function StorybookPage() {
       setAvatarError(error.message);
     } finally {
       setAvatarBusy(false);
+      hideGenPopup();
     }
   }
 
@@ -380,15 +457,26 @@ export default function StorybookPage() {
       setAvatarError(err.message);
     } finally {
       setAvatarFromDescBusy(false);
+      hideGenPopup();
     }
   }
 
-  function handleReferenceFileChange(e) {
+  async function handleReferenceFileChange(e) {
     const file = e.target.files?.[0] || null;
     setReferenceFile(file);
 
     if (file) {
-      generateAvatarFromReference(file, style.illustrationStyle);
+      // Small delay to ensure ref is ready and rendered
+      setTimeout(() => {
+        showGenPopup(avatarContainerRef, GEN_MSG_IMAGE);
+      }, 50);
+      
+      try {
+        await generateAvatarFromReference(file, style.illustrationStyle);
+      } catch (error) {
+        console.error('Error in handleReferenceFileChange:', error);
+        hideGenPopup();
+      }
     } else {
       // Clear avatar if no file
       if (avatarURL) {
@@ -399,11 +487,19 @@ export default function StorybookPage() {
     }
   }
 
-  function regenerateAvatar() {
-    if (referenceFile) {
-      generateAvatarFromReference(referenceFile, style.illustrationStyle);
-    } else if (avatarDescription.trim()) {
-      generateAvatarFromDescription(avatarDescription, style.illustrationStyle);
+  async function regenerateAvatar() {
+    showGenPopup(avatarRegenRef, GEN_MSG_IMAGE);
+    try {
+      if (referenceFile) {
+        await generateAvatarFromReference(referenceFile, style.illustrationStyle);
+      } else if (avatarDescription.trim()) {
+        await generateAvatarFromDescription(avatarDescription, style.illustrationStyle);
+      } else {
+        hideGenPopup();
+      }
+    } catch (error) {
+      console.error('Error in regenerateAvatar:', error);
+      hideGenPopup();
     }
   }
 
@@ -532,6 +628,7 @@ export default function StorybookPage() {
       return;
     }
 
+    showGenPopup(coverBtnRef, GEN_MSG_IMAGE);
     setIllustrateLoading(true);
     try {
       // Get avatar as Blob directly (works for data: URLs too)
@@ -576,6 +673,7 @@ export default function StorybookPage() {
       alert('Cover generation failed: ' + error.message);
     } finally {
       setIllustrateLoading(false);
+      hideGenPopup();
     }
   }
 
@@ -585,6 +683,7 @@ export default function StorybookPage() {
       return;
     }
 
+    showGenPopup(dedicationBtnRef, GEN_MSG_IMAGE);
     setIllustrateLoading(true);
     try {
       // Get avatar as Blob directly (works for data: URLs too)
@@ -628,6 +727,7 @@ export default function StorybookPage() {
       alert('Dedication generation failed: ' + error.message);
     } finally {
       setIllustrateLoading(false);
+      hideGenPopup();
     }
   }
 
@@ -638,6 +738,7 @@ export default function StorybookPage() {
       return;
     }
 
+    showGenPopup(illustrateAllRef, GEN_MSG_ALL);
     setIllustrateLoading(true);
 
     try {
@@ -730,10 +831,12 @@ export default function StorybookPage() {
     } finally {
       setIllustrateLoading(false);
       setProgress({ current: 0, total: 0 });
+      hideGenPopup();
     }
   }
 
   async function illustratePage(page) {
+    showGenPopup(pageRefs.current[page], GEN_MSG_IMAGE);
     setIllustrateLoading(true);
     try {
       const pageData = story.pages.find(p => p.page === page);
@@ -784,6 +887,7 @@ export default function StorybookPage() {
       alert('Page illustration failed: ' + error.message);
     } finally {
       setIllustrateLoading(false);
+      hideGenPopup();
     }
   }
 
@@ -1003,6 +1107,11 @@ export default function StorybookPage() {
 
   return (
     <div className="wendy">
+      {/* Global popup - renders above all sections */}
+      {genPopup && (
+        <GenerationPopup anchorRef={genPopup.anchorRef} message={genPopup.message} />
+      )}
+      
       <div className="wrap">
         <div className="topbar">
           <a className="back" href="/">← Back to Home</a>
@@ -1060,6 +1169,17 @@ export default function StorybookPage() {
                   <div className="meta" style={{fontSize: '11px', marginTop: '4px'}}>
                     Helps Wendy weave your child's favorites into the story
                   </div>
+                </div>
+
+                <div>
+                  <label htmlFor="favoriteToy">Favorite toy</label>
+                  <input
+                    id="favoriteToy"
+                    type="text"
+                    value={childInfo.favoriteToy}
+                    onChange={(e) => setChildInfo({...childInfo, favoriteToy: e.target.value})}
+                    placeholder="e.g., teddy bear, toy car, stuffed bunny"
+                  />
                 </div>
 
                 <div>
@@ -1324,7 +1444,7 @@ export default function StorybookPage() {
                 </div>
 
                 {/* Character Generation Section */}
-                <div style={{marginTop: '20px', padding: '16px', border: '1px solid #2a3a52', borderRadius: '12px', background: 'rgba(255,154,110,.05)'}}>
+                <div ref={avatarContainerRef} style={{marginTop: '20px', padding: '16px', border: '1px solid #2a3a52', borderRadius: '12px', background: 'rgba(255,154,110,.05)'}}>
                   <h3 style={{margin: '0 0 12px 0'}}>Character Generation</h3>
 
                   <div style={{marginBottom: '12px'}}>
@@ -1405,8 +1525,17 @@ export default function StorybookPage() {
                       }}
                     />
                     <button
+                      ref={avatarDescBtnRef}
                       type="button"
-                      onClick={() => generateAvatarFromDescription(avatarDescription, style.illustrationStyle)}
+                      onClick={async () => {
+                        showGenPopup(avatarDescBtnRef, GEN_MSG_IMAGE);
+                        try {
+                          await generateAvatarFromDescription(avatarDescription, style.illustrationStyle);
+                        } catch (error) {
+                          console.error('Error generating avatar from description:', error);
+                          hideGenPopup();
+                        }
+                      }}
                       disabled={!avatarDescription.trim() || avatarBusy || avatarFromDescBusy}
                       style={{
                         marginTop: 8,
@@ -1481,6 +1610,7 @@ export default function StorybookPage() {
 
                   {avatarURL && (
                     <button
+                      ref={avatarRegenRef}
                       className="btn secondary"
                       onClick={regenerateAvatar}
                       disabled={avatarBusy}
@@ -1553,6 +1683,7 @@ export default function StorybookPage() {
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                       <strong style={{color: 'var(--wendy-accent)', fontSize: '16px'}}>📖 Cover Page</strong>
                       <button
+                        ref={coverBtnRef}
                         className="btn secondary"
                         style={{fontSize: '12px', padding: '6px 10px'}}
                         onClick={generateCover}
@@ -1586,6 +1717,7 @@ export default function StorybookPage() {
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                         <strong>Page {page.page}</strong>
                         <button
+                          ref={(el) => pageRefs.current[page.page] = el}
                           className="btn secondary"
                           style={{fontSize: '12px', padding: '6px 10px'}}
                           onClick={() => illustratePage(page.page)}
@@ -1618,6 +1750,7 @@ export default function StorybookPage() {
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
                       <strong style={{color: '#7bd389', fontSize: '16px'}}>📝 Dedication Page</strong>
                       <button
+                        ref={dedicationBtnRef}
                         className="btn secondary"
                         style={{fontSize: '12px', padding: '6px 10px'}}
                         onClick={generateDedication}
@@ -1661,6 +1794,7 @@ export default function StorybookPage() {
 
                   <div className="buttons" style={{marginTop: '20px'}}>
                     <button
+                      ref={illustrateAllRef}
                       className="btn"
                       onClick={illustrateAll}
                       disabled={illustrateLoading || !story?.pages || story.pages.length === 0}

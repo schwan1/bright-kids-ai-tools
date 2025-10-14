@@ -38,38 +38,81 @@ export async function POST(request) {
       }
     }
 
-    // Build the prompt
-    const systemPrompt = `You are Wendy, a kind children's author and parent coach. Write age-appropriate picture-book text (2–5 sentences per page) with gentle, predictable structure and rich sensory detail.
+    // Build the prompt per hero-focused spec
+    const systemPrompt = `You are a compassionate children's author.
+Use warm, simple language suitable for the stated reading level.
+Keep British spelling. Write picture-book narration with clear scene changes and gentle pacing: calm build‑up → small challenge → child‑led solution → proud ending.
+Thread the child's interests and favourite toy from beginning to end. Avoid violence, shame, medical advice, or moralising about being "normal".
+Output valid JSON only, matching the required schema.`;
 
-IMPORTANT SAFETY GUIDELINES:
-- Create only gentle, nurturing, age-appropriate content
-- Avoid any scary, violent, or inappropriate themes
-- Focus on positive learning and emotional growth
-- Use warm, comforting language suitable for young children
-- Never include text-in-image instructions in illustration prompts
+    const triggerPhrases = ['loud noise','loud noises','noise','cinema','movie theater','movie theatre'];
+    const haystack = `${(goal.challenge||'').toLowerCase()} ${(goal.context||'').toLowerCase()} ${(child.sensitivities||[]).join(' ').toLowerCase()}`;
+    const noiseTriggered = triggerPhrases.some(p => haystack.includes(p));
 
-Output valid JSON only, matching the provided schema exactly.`;
+    const userPrompt = `# === STORY REQUEST ===
+meta:
+  app: "Wendy the Storybook Maker"
+  british_spelling: true
+  output_markdown_only: false
 
-    const userPrompt = `CHILD
-- Name: ${child.name}
-- Age: ${child.age}
-- Interests: ${child.interests?.join(', ') || 'none specified'}
-- Reading level: ${child.readingLevel}
-- Sensitivities/supports: ${child.sensitivities?.join(', ') || 'none specified'}
+child_profile:
+  name: "${child.name}"
+  age_years: ${child.age}
+  pronouns: "${child.pronouns || ''}"
+  interests: [${(child.interests||[]).join(', ')}]
+  favourite_toy: "${child.favoriteToy || ''}"
+  play_setting: ""
 
-GOAL
-- Challenge: ${goal.challenge}
-- Context: ${goal.context || 'none specified'}
-- Tone: ${goal.tone}
-- Learning focus: ${goal.learningFocus?.join(', ') || 'none specified'}
+reading_and_style:
+  reading_level: "${child.readingLevel}"
+  tone: "${goal.tone}"
+  pages: ${style.pageCount}
+  illustration_style: "${style.illustrationStyle}"
 
-STYLE
-- Illustration style: ${style.illustrationStyle}
-- Page count: ${style.pageCount}
-- Include affirmation: ${style.includeAffirmation}
-- Dedication: ${style.dedication || 'none specified'}
+support_needs:
+  sensitivities: [${(child.sensitivities||[]).join(', ')}]
+  supports_available: []
 
-Write a title and ${style.pageCount} pages. Each page: 2–5 short sentences. If the goal involves anxiety, include a repeating comfort element (e.g., "hand on heart, slow breath"). Return JSON with keys: title, summary, pages[], affirmation (if requested), dedication. For each page include: page, text, illustrationPrompt (no text-in-image), alt, style, seed (random int).`;
+learning_focus: [${(goal.learningFocus||[]).join(', ')}]
+
+story_setup:
+  challenge_short: "${goal.challenge}"
+  context_detail: "${goal.context || ''}"
+
+cinema_noise_logic:
+  trigger_phrases: [loud noise, loud noises, noise, cinema, movie theater, movie theatre]
+  plan_when_triggered:
+    seating: "choose aisle seats near exit"
+    timing: "arrive early before the room gets busy"
+    headphones: "use ear defenders/headphones during trailers"
+    step_out: "child may step out, reset, and return when ready"
+    co_regulation: "hand-squeeze signal + five slow breaths"
+    preview: "name ‘loud parts’ ahead of time; practise with short clips"
+
+content_rules:
+  hero_child: true
+  strengths_based: true
+  sensory_friendly: true
+  include_refrains: 2
+  avoid: [violence, shame, medical advice, moralising about being normal]
+
+structure:
+  title_page: true
+  page_count: ${style.pageCount}
+  pov: "close third"
+  rhyme_mode: false
+  caregiver_note: true
+
+instructions: |
+  Keep British spelling. 2–3 short sentences per page (maximum) so text fits.
+  Child is the hero with real agency; adults offer choices, child decides.
+  If cinema/noise triggers are present, include at least two accommodations from the plan above, woven naturally.
+  Close with an affirmation naming the child's strength.
+
+# App integration requirements:
+# Return JSON with: title, summary, pages[], affirmation, dedication (optional), refrains (optional)
+# pages[]: { page, text, illustrationPrompt, alt, style }
+`; 
 
     // Call OpenAI Chat Completions API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
